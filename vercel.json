@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/weeks/auto-close",
+      "schedule": "*/30 * * * *"
+    }
+  ]
+}
