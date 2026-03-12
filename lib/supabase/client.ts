@@ -3,6 +3,7 @@
 import { createBrowserClient } from "@supabase/ssr";
 
 const MIN_SUPABASE_FETCH_TIMEOUT_MS = 10000;
+const SUPABASE_FETCH_TIMEOUT_ERROR = "SUPABASE_FETCH_TIMEOUT";
 
 function readEnvNumber(value: string | undefined): number | null {
   if (!value) {
@@ -33,6 +34,16 @@ async function fetchWithTimeout(
       ...init,
       signal: controller.signal,
     });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      const timeoutError = new Error("Supabase request timed out.", {
+        cause: error,
+      });
+      timeoutError.name = SUPABASE_FETCH_TIMEOUT_ERROR;
+      throw timeoutError;
+    }
+
+    throw error;
   } finally {
     clearTimeout(timeout);
   }

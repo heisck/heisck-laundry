@@ -6,6 +6,10 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 const AUTH_TIMEOUT_MESSAGE =
   "Authentication check timed out while contacting Supabase.";
+const AUTH_TIMEOUT_ERROR_NAMES = new Set([
+  "AbortError",
+  "SUPABASE_FETCH_TIMEOUT",
+]);
 
 function isDynamicServerUsageError(error: unknown): boolean {
   if (!error || typeof error !== "object") {
@@ -30,8 +34,40 @@ function isAbortError(error: unknown): boolean {
   }
 
   const name = "name" in error ? String((error as { name?: unknown }).name ?? "") : "";
+  const message =
+    "message" in error ? String((error as { message?: unknown }).message ?? "") : "";
   const code = "code" in error ? Number((error as { code?: unknown }).code) : NaN;
-  return name === "AbortError" || code === 20;
+  const cause =
+    "cause" in error ? (error as { cause?: unknown }).cause : undefined;
+
+  return (
+    AUTH_TIMEOUT_ERROR_NAMES.has(name) ||
+    code === 20 ||
+    message.includes("aborted") ||
+    message.includes("timed out") ||
+    (cause !== undefined && isAbortError(cause))
+  );
+}
+
+function isSupabaseAuthTimeoutResult(error: unknown): boolean {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+
+  if (isAbortError(error)) {
+    return true;
+  }
+
+  const message =
+    "message" in error ? String((error as { message?: unknown }).message ?? "") : "";
+  const status =
+    "status" in error ? String((error as { status?: unknown }).status ?? "") : "";
+  return (
+    message.includes("Supabase request timed out") ||
+    message.includes("aborted") ||
+    message.includes("timed out") ||
+    status === "0"
+  );
 }
 
 function isAuthTimeoutError(error: unknown): boolean {
@@ -42,7 +78,13 @@ export async function getOptionalUser(): Promise<User | null> {
   try {
     const supabase = await createSupabaseServerClient();
     const { data, error } = await supabase.auth.getUser();
-    if (error || !data.user) {
+    if (error) {
+      if (isSupabaseAuthTimeoutResult(error)) {
+        throw new Error(AUTH_TIMEOUT_MESSAGE, { cause: error });
+      }
+      return null;
+    }
+    if (!data.user) {
       return null;
     }
 
@@ -51,9 +93,9 @@ export async function getOptionalUser(): Promise<User | null> {
     if (isDynamicServerUsageError(error)) {
       throw error;
     }
-    if (isAbortError(error)) {
+    if (isSupabaseAuthTimeoutResult(error)) {
       console.error("[auth] getOptionalUser timed out", error);
-      throw new Error(AUTH_TIMEOUT_MESSAGE);
+      throw new Error(AUTH_TIMEOUT_MESSAGE, { cause: error });
     }
     console.error("[auth] getOptionalUser failed", error);
     return null;

@@ -74,7 +74,13 @@ interface PackagesPayload {
   packages: PackageRecord[];
 }
 
-type BusyAction = null | "refresh" | "search" | "createPackage" | "updateStatus";
+type BusyAction =
+  | null
+  | "refresh"
+  | "search"
+  | "createPackage"
+  | "updateStatus"
+  | "retrySms";
 type PendingStatusUpdate = {
   packageId: string;
   nextStatus: PackageStatus;
@@ -181,6 +187,9 @@ export function PackagesPageClient({
   const [busyAction, setBusyAction] = useState<BusyAction>(null);
   const [pendingStatusUpdate, setPendingStatusUpdate] =
     useState<PendingStatusUpdate>(null);
+  const [pendingSmsRetryPackageId, setPendingSmsRetryPackageId] = useState<
+    string | null
+  >(null);
   const initRef = useRef(false);
 
   const isBusy = busyAction !== null;
@@ -224,7 +233,7 @@ export function PackagesPageClient({
     return calculatePackagePricing(weightKg, createForm.packageType);
   }, [createForm.packageType, createForm.totalWeightKg]);
 
-  async function loadPackagesAndWeek(query?: {
+  async function loadPackages(query?: {
     search?: string;
     status?: PackageStatus | "ALL";
   }) {
@@ -239,20 +248,25 @@ export function PackagesPageClient({
     }
 
     const queryString = params.toString();
-    const [currentWeekResponse, packagesResponse] = await Promise.all([
-      fetchWithTimeout("/api/admin/weeks/current", { cache: "no-store" }),
-      fetchWithTimeout(
-        `/api/admin/packages${queryString ? `?${queryString}` : ""}`,
-        { cache: "no-store" },
-      ),
-    ]);
+    const response = await fetchWithTimeout(
+      `/api/admin/packages${queryString ? `?${queryString}` : ""}`,
+      { cache: "no-store" },
+    );
+    const payload = await parseApiResponse<PackagesPayload>(response);
+    setPackages(payload.packages);
+  }
 
+  async function loadPackagesAndWeek(query?: {
+    search?: string;
+    status?: PackageStatus | "ALL";
+  }) {
+    const currentWeekResponse = await fetchWithTimeout("/api/admin/weeks/current", {
+      cache: "no-store",
+    });
     const currentWeekPayload =
       await parseApiResponse<CurrentWeekPayload>(currentWeekResponse);
-    const packagesPayload =
-      await parseApiResponse<PackagesPayload>(packagesResponse);
     setCurrentWeek(currentWeekPayload.week);
-    setPackages(packagesPayload.packages);
+    await loadPackages(query);
   }
 
   async function refreshAll(showLoader = false) {
@@ -417,7 +431,7 @@ export function PackagesPageClient({
     event.preventDefault();
     setBusyAction("search");
     try {
-      await loadPackagesAndWeek({
+      await loadPackages({
         search: search.trim(),
         status: statusFilter,
       });
@@ -429,6 +443,50 @@ export function PackagesPageClient({
         error instanceof Error ? error.message : "Unknown error",
       );
     } finally {
+      setBusyAction(null);
+    }
+  }
+
+  async function handleRetrySms(packageId: string) {
+    setBusyAction("retrySms");
+    setPendingSmsRetryPackageId(packageId);
+    try {
+      const response = await fetchWithTimeout(
+        `/api/admin/packages/${packageId}/notifications`,
+        {
+          method: "POST",
+        },
+      );
+      const payload = await parseApiResponse<{
+        package: PackageRecord;
+        notifications: NotificationAttempt[];
+      }>(response);
+
+      setPackages((prev) =>
+        prev.map((row) => (row.id === packageId ? payload.package : row)),
+      );
+
+      const failedNotifications = payload.notifications.filter((item) => !item.ok);
+      if (failedNotifications.length > 0) {
+        pushToast(
+          "warning",
+          "SMS retry failed",
+          failedNotifications
+            .map((item) => `${item.phoneNumber}: ${item.errorText ?? item.deliveryState}`)
+            .join(" | "),
+        );
+        return;
+      }
+
+      pushToast("success", "SMS retried", payload.package.order_id);
+    } catch (error) {
+      pushToast(
+        "error",
+        "Failed to retry SMS",
+        error instanceof Error ? error.message : "Unknown error",
+      );
+    } finally {
+      setPendingSmsRetryPackageId(null);
       setBusyAction(null);
     }
   }
@@ -822,12 +880,20 @@ export function PackagesPageClient({
                     {pendingStatusUpdate?.packageId === pkg.id ? (
                       <p className="text-xs font-medium text-blue-700">Sending update...</p>
                     ) : null}
-                    {pkg.last_delivery_state ?? "No message yet"}
+                    <p>{pkg.last_delivery_state ?? "No message yet"}</p>
                     {pkg.last_notification_at ? (
                       <p className="mt-1 text-xs text-slate-500">
                         {formatAccraDateTime(pkg.last_notification_at)}
                       </p>
                     ) : null}
+                    <button
+                      type="button"
+                      onClick={() => void handleRetrySms(pkg.id)}
+                      disabled={isBusy}
+                      className="btn btn-secondary mt-2"
+                    >
+                      {pendingSmsRetryPackageId === pkg.id ? "Retrying..." : "Retry SMS"}
+                    </button>
                   </td>
                 </tr>
               ))}

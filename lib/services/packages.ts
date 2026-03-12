@@ -48,6 +48,11 @@ interface CreatePackageResult {
   notifications: SmsDispatchResult[];
 }
 
+interface PackageSmsDispatchResult {
+  package: PackageRecord;
+  notifications: SmsDispatchResult[];
+}
+
 function toNumber(value: unknown): number {
   const num = Number(value ?? 0);
   return Number.isFinite(num) ? num : 0;
@@ -325,6 +330,33 @@ async function dispatchPackageSms(params: {
       }),
     ),
   );
+}
+
+async function dispatchCurrentPackageSms(
+  packageRecord: PackageRecord,
+): Promise<PackageSmsDispatchResult> {
+  const triggerType: NotificationTriggerType =
+    packageRecord.status === "RECEIVED" ? "CREATED" : "STATUS_CHANGED";
+  const trackingUrl =
+    packageRecord.status === "RECEIVED"
+      ? await createTrackingUrl(
+          packageRecord.id,
+          packageRecord.tracking_token_id,
+          new Date(packageRecord.expires_at),
+        )
+      : undefined;
+
+  const notifications = await dispatchPackageSms({
+    packageRecord,
+    triggerType,
+    statusContext: packageRecord.status,
+    trackingUrl,
+  });
+
+  return {
+    package: mergeNotificationSnapshot(packageRecord, notifications),
+    notifications,
+  };
 }
 
 export async function createPackage(
@@ -701,4 +733,11 @@ export async function updatePackageStatus(
     skipped: false,
     notifications,
   };
+}
+
+export async function retryPackageNotifications(
+  packageId: string,
+): Promise<PackageSmsDispatchResult> {
+  const packageRecord = await getPackageById(packageId);
+  return dispatchCurrentPackageSms(packageRecord);
 }
