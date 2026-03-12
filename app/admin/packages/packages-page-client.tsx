@@ -53,15 +53,23 @@ interface NotificationAttempt {
   deliveryState: string;
   providerMessageId: string | null;
   errorText: string | null;
+  attemptedAt?: string;
 }
 
-interface DashboardPayload {
-  currentWeek: ProcessingWeek | null;
+interface CurrentWeekPayload {
+  week: ProcessingWeek | null;
   remainingSeconds: number;
+}
+
+interface PackagesPayload {
   packages: PackageRecord[];
 }
 
 type BusyAction = null | "refresh" | "search" | "createPackage" | "updateStatus";
+type PendingStatusUpdate = {
+  packageId: string;
+  nextStatus: PackageStatus;
+} | null;
 
 const STATUS_ORDER: Record<PackageStatus, number> = {
   RECEIVED: 0,
@@ -162,6 +170,8 @@ export function PackagesPageClient({
   const [qrFullscreenOpen, setQrFullscreenOpen] = useState(false);
   const [loading, setLoading] = useState(!initialLoadReady);
   const [busyAction, setBusyAction] = useState<BusyAction>(null);
+  const [pendingStatusUpdate, setPendingStatusUpdate] =
+    useState<PendingStatusUpdate>(null);
   const initRef = useRef(false);
 
   const isBusy = busyAction !== null;
@@ -200,7 +210,7 @@ export function PackagesPageClient({
     };
   }, [packages]);
 
-  async function loadDashboard(query?: {
+  async function loadPackagesAndWeek(query?: {
     search?: string;
     status?: PackageStatus | "ALL";
   }) {
@@ -215,13 +225,20 @@ export function PackagesPageClient({
     }
 
     const queryString = params.toString();
-    const response = await fetchWithTimeout(
-      `/api/admin/dashboard${queryString ? `?${queryString}` : ""}`,
-      { cache: "no-store" },
-    );
-    const payload = await parseApiResponse<DashboardPayload>(response);
-    setCurrentWeek(payload.currentWeek);
-    setPackages(payload.packages);
+    const [currentWeekResponse, packagesResponse] = await Promise.all([
+      fetchWithTimeout("/api/admin/weeks/current", { cache: "no-store" }),
+      fetchWithTimeout(
+        `/api/admin/packages${queryString ? `?${queryString}` : ""}`,
+        { cache: "no-store" },
+      ),
+    ]);
+
+    const currentWeekPayload =
+      await parseApiResponse<CurrentWeekPayload>(currentWeekResponse);
+    const packagesPayload =
+      await parseApiResponse<PackagesPayload>(packagesResponse);
+    setCurrentWeek(currentWeekPayload.week);
+    setPackages(packagesPayload.packages);
   }
 
   async function refreshAll(showLoader = false) {
@@ -230,7 +247,7 @@ export function PackagesPageClient({
     }
     setBusyAction("refresh");
     try {
-      await loadDashboard();
+      await loadPackagesAndWeek();
     } catch (error) {
       pushToast(
         "error",
@@ -332,6 +349,7 @@ export function PackagesPageClient({
 
   async function handleStatusChange(packageId: string, nextStatus: PackageStatus) {
     setBusyAction("updateStatus");
+    setPendingStatusUpdate({ packageId, nextStatus });
     try {
       const response = await fetchWithTimeout(`/api/admin/packages/${packageId}/status`, {
         method: "PATCH",
@@ -376,6 +394,7 @@ export function PackagesPageClient({
         error instanceof Error ? error.message : "Unknown error",
       );
     } finally {
+      setPendingStatusUpdate(null);
       setBusyAction(null);
     }
   }
@@ -384,7 +403,7 @@ export function PackagesPageClient({
     event.preventDefault();
     setBusyAction("search");
     try {
-      await loadDashboard({
+      await loadPackagesAndWeek({
         search: search.trim(),
         status: statusFilter,
       });
@@ -705,8 +724,17 @@ export function PackagesPageClient({
                     </span>
                   </td>
                   <td className="px-3 py-3">
+                    {pendingStatusUpdate?.packageId === pkg.id ? (
+                      <p className="mb-1 text-xs font-medium text-blue-700">
+                        Updating to {getStatusLabel(pendingStatusUpdate.nextStatus)}...
+                      </p>
+                    ) : null}
                     <select
-                      value={pkg.status}
+                      value={
+                        pendingStatusUpdate?.packageId === pkg.id
+                          ? pendingStatusUpdate.nextStatus
+                          : pkg.status
+                      }
                       disabled={isBusy || pkg.status === "PICKED_UP"}
                       onChange={(event) =>
                         void handleStatusChange(
@@ -724,6 +752,9 @@ export function PackagesPageClient({
                     </select>
                   </td>
                   <td className="px-3 py-3">
+                    {pendingStatusUpdate?.packageId === pkg.id ? (
+                      <p className="text-xs font-medium text-blue-700">Sending update...</p>
+                    ) : null}
                     {pkg.last_delivery_state ?? "No message yet"}
                     {pkg.last_notification_at ? (
                       <p className="mt-1 text-xs text-slate-500">

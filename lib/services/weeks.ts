@@ -1,4 +1,4 @@
-import { getDb } from "@/lib/db";
+import { getDb, withDbConnectionRetry } from "@/lib/db";
 import { addDays } from "@/lib/time";
 import type {
   ProcessingWeek,
@@ -60,39 +60,43 @@ function defaultWeekLabel(startAt: Date): string {
 }
 
 export async function getCurrentProcessingWeek(): Promise<ProcessingWeek | null> {
-  const sql = getDb();
-  const rows = await sql`
-    select id, label, start_at, end_at, status, closed_at, closed_by, created_at
-    from processing_weeks
-    where status = 'ACTIVE'
-    order by start_at desc
-    limit 1
-  `;
+  const rows = await withDbConnectionRetry(async () => {
+    const sql = getDb();
+    return sql`
+      select id, label, start_at, end_at, status, closed_at, closed_by, created_at
+      from processing_weeks
+      where status = 'ACTIVE'
+      order by start_at desc
+      limit 1
+    `;
+  });
 
   return rows.length > 0 ? mapWeek(rows[0] as Record<string, unknown>) : null;
 }
 
 export async function listProcessingWeeks(): Promise<ProcessingWeekWithReport[]> {
-  const sql = getDb();
-  const rows = await sql`
-    select
-      w.id,
-      w.label,
-      w.start_at,
-      w.end_at,
-      w.status,
-      w.closed_at,
-      w.closed_by,
-      w.created_at,
-      r.package_count,
-      r.total_clothes_count,
-      r.total_weight_kg,
-      r.total_price_ghs,
-      r.generated_at
-    from processing_weeks w
-    left join week_reports r on r.week_id = w.id
-    order by w.start_at desc
-  `;
+  const rows = await withDbConnectionRetry(async () => {
+    const sql = getDb();
+    return sql`
+      select
+        w.id,
+        w.label,
+        w.start_at,
+        w.end_at,
+        w.status,
+        w.closed_at,
+        w.closed_by,
+        w.created_at,
+        r.package_count,
+        r.total_clothes_count,
+        r.total_weight_kg,
+        r.total_price_ghs,
+        r.generated_at
+      from processing_weeks w
+      left join week_reports r on r.week_id = w.id
+      order by w.start_at desc
+    `;
+  });
 
   return rows.map((row) => mapWeekWithReport(row as Record<string, unknown>));
 }

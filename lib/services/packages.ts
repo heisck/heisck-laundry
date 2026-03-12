@@ -2,12 +2,12 @@ import { randomUUID } from "crypto";
 import QRCode from "qrcode";
 
 import { AppError } from "@/lib/app-error";
-import { getDb } from "@/lib/db";
+import { getDb, withDbConnectionRetry } from "@/lib/db";
 import { buildOrderId, buildOrderPrefix } from "@/lib/order-id";
 import { dedupePhones, normalizeGhanaPhone } from "@/lib/phone";
 import { sendArkeselSms } from "@/lib/sms/arkesel";
-import { getStatusLabel, isForwardTransition } from "@/lib/status";
-import { addDays, formatAccraDateTime } from "@/lib/time";
+import { isForwardTransition } from "@/lib/status";
+import { addDays } from "@/lib/time";
 import { signTrackingToken } from "@/lib/tracking-token";
 import type {
   NotificationLogRecord,
@@ -28,6 +28,7 @@ interface CreatePackageInput {
 }
 
 interface SmsDispatchResult {
+  attemptedAt: string;
   phoneNumber: string;
   ok: boolean;
   deliveryState: string;
@@ -121,20 +122,30 @@ function buildMessage({
   orderId,
   status,
   trackingUrl,
-  etaAt,
 }: {
   orderId: string;
   status: PackageStatus;
-  trackingUrl: string;
-  etaAt: string;
+  trackingUrl?: string;
 }): string {
-  const statusLabel = getStatusLabel(status);
-
   if (status === "RECEIVED") {
-    return `Laundry update for order ${orderId}: package received. ETA ${formatAccraDateTime(etaAt)}. Track: ${trackingUrl}`;
+    return trackingUrl
+      ? `Clothes have been received. Track here: ${trackingUrl}`
+      : "Clothes have been received.";
   }
 
-  return `Laundry update for order ${orderId}: status is now ${statusLabel}. ETA ${formatAccraDateTime(etaAt)}. Track: ${trackingUrl}`;
+  if (status === "WASHING") {
+    return `Order number ${orderId} is being washed.`;
+  }
+
+  if (status === "DRYING") {
+    return `Order number ${orderId} is drying.`;
+  }
+
+  if (status === "READY_FOR_PICKUP") {
+    return `Order number ${orderId} is ready for pickup.`;
+  }
+
+  return `Order number ${orderId} has been picked up.`;
 }
 
 async function logNotification(params: {
@@ -145,6 +156,7 @@ async function logNotification(params: {
   providerMessageId: string | null;
   deliveryState: string;
   errorText: string | null;
+  sentAt: string;
 }) {
   const sql = getDb();
   await sql`
@@ -170,22 +182,125 @@ async function logNotification(params: {
         ${params.providerMessageId},
         ${params.deliveryState},
         ${params.errorText},
-        now()
+        ${params.sentAt}
       )
   `;
+}
+
+async function safeLogNotification(params: {
+  packageId: string;
+  triggerType: NotificationTriggerType;
+  statusContext: PackageStatus | null;
+  phoneNumber: string;
+  providerMessageId: string | null;
+  deliveryState: string;
+  errorText: string | null;
+  sentAt: string;
+}) {
+  try {
+    await logNotification(params);
+  } catch (error) {
+    console.error("[notifications] failed to log notification", {
+      error,
+      packageId: params.packageId,
+      phoneNumber: params.phoneNumber,
+      triggerType: params.triggerType,
+      deliveryState: params.deliveryState,
+    });
+  }
+}
+
+function mergeNotificationSnapshot(
+  packageRecord: PackageRecord,
+  notifications: SmsDispatchResult[],
+): PackageRecord {
+  if (notifications.length === 0) {
+    return packageRecord;
+  }
+
+  const latest = notifications.reduce((currentLatest, notification) =>
+    notification.attemptedAt > currentLatest.attemptedAt
+      ? notification
+      : currentLatest,
+  );
+
+  return {
+    ...packageRecord,
+    last_delivery_state: latest.deliveryState,
+    last_notification_at: latest.attemptedAt,
+  };
+}
+
+async function dispatchSmsToRecipient(params: {
+  packageRecord: PackageRecord;
+  triggerType: NotificationTriggerType;
+  statusContext: PackageStatus | null;
+  phoneNumber: string;
+  message: string;
+}): Promise<SmsDispatchResult> {
+  try {
+    const sendResult = await sendArkeselSms({
+      to: params.phoneNumber,
+      content: params.message,
+    });
+    const attemptedAt = new Date().toISOString();
+
+    await safeLogNotification({
+      packageId: params.packageRecord.id,
+      triggerType: params.triggerType,
+      statusContext: params.statusContext,
+      phoneNumber: params.phoneNumber,
+      providerMessageId: sendResult.providerMessageId,
+      deliveryState: sendResult.deliveryState,
+      errorText: sendResult.errorText,
+      sentAt: attemptedAt,
+    });
+
+    return {
+      attemptedAt,
+      phoneNumber: params.phoneNumber,
+      ok: sendResult.ok,
+      deliveryState: sendResult.deliveryState,
+      providerMessageId: sendResult.providerMessageId,
+      errorText: sendResult.errorText,
+    };
+  } catch (error) {
+    const attemptedAt = new Date().toISOString();
+    const errorText =
+      error instanceof Error ? error.message : "Failed to send SMS.";
+
+    await safeLogNotification({
+      packageId: params.packageRecord.id,
+      triggerType: params.triggerType,
+      statusContext: params.statusContext,
+      phoneNumber: params.phoneNumber,
+      providerMessageId: null,
+      deliveryState: "FAILED",
+      errorText,
+      sentAt: attemptedAt,
+    });
+
+    return {
+      attemptedAt,
+      phoneNumber: params.phoneNumber,
+      ok: false,
+      deliveryState: "FAILED",
+      providerMessageId: null,
+      errorText,
+    };
+  }
 }
 
 async function dispatchPackageSms(params: {
   packageRecord: PackageRecord;
   triggerType: NotificationTriggerType;
   statusContext: PackageStatus | null;
-  trackingUrl: string;
+  trackingUrl?: string;
 }): Promise<SmsDispatchResult[]> {
   const message = buildMessage({
     orderId: params.packageRecord.order_id,
     status: params.statusContext ?? params.packageRecord.status,
     trackingUrl: params.trackingUrl,
-    etaAt: params.packageRecord.eta_at,
   });
 
   const recipients = dedupePhones(
@@ -193,65 +308,23 @@ async function dispatchPackageSms(params: {
     params.packageRecord.secondary_phone,
   );
 
-  const results: SmsDispatchResult[] = [];
-
-  for (const phoneNumber of recipients) {
-    try {
-      const sendResult = await sendArkeselSms({
-        to: phoneNumber,
-        content: message,
-      });
-
-      await logNotification({
-        packageId: params.packageRecord.id,
+  return Promise.all(
+    recipients.map((phoneNumber) =>
+      dispatchSmsToRecipient({
+        packageRecord: params.packageRecord,
         triggerType: params.triggerType,
         statusContext: params.statusContext,
         phoneNumber,
-        providerMessageId: sendResult.providerMessageId,
-        deliveryState: sendResult.deliveryState,
-        errorText: sendResult.errorText,
-      });
-
-      results.push({
-        phoneNumber,
-        ok: sendResult.ok,
-        deliveryState: sendResult.deliveryState,
-        providerMessageId: sendResult.providerMessageId,
-        errorText: sendResult.errorText,
-      });
-    } catch (error) {
-      const errorText =
-        error instanceof Error ? error.message : "Failed to send SMS.";
-
-      await logNotification({
-        packageId: params.packageRecord.id,
-        triggerType: params.triggerType,
-        statusContext: params.statusContext,
-        phoneNumber,
-        providerMessageId: null,
-        deliveryState: "FAILED",
-        errorText,
-      });
-
-      results.push({
-        phoneNumber,
-        ok: false,
-        deliveryState: "FAILED",
-        providerMessageId: null,
-        errorText,
-      });
-    }
-  }
-
-  return results;
+        message,
+      }),
+    ),
+  );
 }
 
 export async function createPackage(
   input: CreatePackageInput,
   userId: string,
 ): Promise<CreatePackageResult> {
-  const sql = getDb();
-
   const normalizedPrimary = normalizeGhanaPhone(input.primaryPhone);
   if (!normalizedPrimary) {
     throw new AppError(
@@ -283,125 +356,128 @@ export async function createPackage(
   const now = new Date();
   const expiresAt = addDays(now, 3);
 
-  const insertedPackage = await sql.begin(async (tx) => {
-    const trx = tx as unknown as ReturnType<typeof getDb>;
-    const activeWeekRows = await trx`
-      select id
-      from processing_weeks
-      where status = 'ACTIVE'
-      order by start_at desc
-      limit 1
-      for update
-    `;
+  const insertedPackage = await withDbConnectionRetry(async () => {
+    const sql = getDb();
+    return sql.begin(async (tx) => {
+      const trx = tx as unknown as ReturnType<typeof getDb>;
+      const activeWeekRows = await trx`
+        select id
+        from processing_weeks
+        where status = 'ACTIVE'
+        order by start_at desc
+        limit 1
+        for update
+      `;
 
-    if (activeWeekRows.length === 0) {
+      if (activeWeekRows.length === 0) {
+        throw new AppError(
+          "NO_ACTIVE_WEEK",
+          409,
+          "No active processing week. Start a week before creating packages.",
+        );
+      }
+
+      const weekId = String((activeWeekRows[0] as { id: string }).id);
+      const prefixPattern = `${prefix}%`;
+
+      await trx`select pg_advisory_xact_lock(hashtext(${prefix}))`;
+
+      const existingRows = await trx`
+        select order_id
+        from packages
+        where order_id like ${prefixPattern}
+      `;
+
+      const sequenceRegex = new RegExp(`^${escapeRegExp(prefix)}(\\d+)$`);
+      let baseSequence = 1;
+
+      for (const row of existingRows) {
+        const orderId = String((row as { order_id: string }).order_id);
+        const match = sequenceRegex.exec(orderId);
+        if (!match) {
+          continue;
+        }
+
+        const parsed = Number(match[1]);
+        if (Number.isFinite(parsed) && parsed >= baseSequence) {
+          baseSequence = parsed + 1;
+        }
+      }
+
+      for (let attempt = 0; attempt < 100; attempt += 1) {
+        const orderId = buildOrderId(prefix, baseSequence + attempt);
+
+        const rows = await trx`
+          insert into packages
+            (
+              week_id,
+              order_id,
+              tracking_token_id,
+              customer_name,
+              room_number,
+              clothes_count,
+              total_weight_kg,
+              total_price_ghs,
+              primary_phone,
+              secondary_phone,
+              status,
+              eta_at,
+              created_by,
+              created_at,
+              updated_at,
+              picked_up_at,
+              expires_at
+            )
+          values
+            (
+              ${weekId},
+              ${orderId},
+              ${trackingTokenId},
+              ${input.customerName.trim()},
+              ${input.roomNumber.trim()},
+              ${input.clothesCount},
+              ${input.totalWeightKg},
+              ${input.totalPriceGhs},
+              ${normalizedPrimary},
+              ${normalizedSecondary},
+              'RECEIVED',
+              ${eta.toISOString()},
+              ${userId},
+              now(),
+              now(),
+              null,
+              ${expiresAt.toISOString()}
+            )
+          on conflict (order_id) do nothing
+          returning *
+        `;
+
+        if (rows.length === 0) {
+          continue;
+        }
+
+        await trx`
+          insert into package_status_events
+            (package_id, from_status, to_status, changed_by, changed_at)
+          values
+            (${rows[0].id}, null, 'RECEIVED', ${userId}, now())
+        `;
+
+        const row = rows[0] as Record<string, unknown>;
+        return {
+          ...row,
+          week_status: "ACTIVE",
+          last_delivery_state: null,
+          last_notification_at: null,
+        };
+      }
+
       throw new AppError(
-        "NO_ACTIVE_WEEK",
-        409,
-        "No active processing week. Start a week before creating packages.",
+        "ORDER_ID_EXHAUSTED",
+        500,
+        "Unable to generate a unique order ID after multiple attempts.",
       );
-    }
-
-    const weekId = String((activeWeekRows[0] as { id: string }).id);
-    const prefixPattern = `${prefix}%`;
-
-    await trx`select pg_advisory_xact_lock(hashtext(${prefix}))`;
-
-    const existingRows = await trx`
-      select order_id
-      from packages
-      where order_id like ${prefixPattern}
-    `;
-
-    const sequenceRegex = new RegExp(`^${escapeRegExp(prefix)}(\\d+)$`);
-    let baseSequence = 1;
-
-    for (const row of existingRows) {
-      const orderId = String((row as { order_id: string }).order_id);
-      const match = sequenceRegex.exec(orderId);
-      if (!match) {
-        continue;
-      }
-
-      const parsed = Number(match[1]);
-      if (Number.isFinite(parsed) && parsed >= baseSequence) {
-        baseSequence = parsed + 1;
-      }
-    }
-
-    for (let attempt = 0; attempt < 100; attempt += 1) {
-      const orderId = buildOrderId(prefix, baseSequence + attempt);
-
-      const rows = await trx`
-        insert into packages
-          (
-            week_id,
-            order_id,
-            tracking_token_id,
-            customer_name,
-            room_number,
-            clothes_count,
-            total_weight_kg,
-            total_price_ghs,
-            primary_phone,
-            secondary_phone,
-            status,
-            eta_at,
-            created_by,
-            created_at,
-            updated_at,
-            picked_up_at,
-            expires_at
-          )
-        values
-          (
-            ${weekId},
-            ${orderId},
-            ${trackingTokenId},
-            ${input.customerName.trim()},
-            ${input.roomNumber.trim()},
-            ${input.clothesCount},
-            ${input.totalWeightKg},
-            ${input.totalPriceGhs},
-            ${normalizedPrimary},
-            ${normalizedSecondary},
-            'RECEIVED',
-            ${eta.toISOString()},
-            ${userId},
-            now(),
-            now(),
-            null,
-            ${expiresAt.toISOString()}
-          )
-        on conflict (order_id) do nothing
-        returning *
-      `;
-
-      if (rows.length === 0) {
-        continue;
-      }
-
-      await trx`
-        insert into package_status_events
-          (package_id, from_status, to_status, changed_by, changed_at)
-        values
-          (${rows[0].id}, null, 'RECEIVED', ${userId}, now())
-      `;
-
-      const row = rows[0] as Record<string, unknown>;
-      return {
-        ...row,
-        week_status: "ACTIVE",
-        last_delivery_state: null,
-        last_notification_at: null,
-      };
-    }
-
-    throw new AppError(
-      "ORDER_ID_EXHAUSTED",
-      500,
-      "Unable to generate a unique order ID after multiple attempts.",
-    );
+    });
   });
 
   const mappedPackage = mapPackage(insertedPackage);
@@ -423,7 +499,7 @@ export async function createPackage(
   });
 
   return {
-    package: mappedPackage,
+    package: mergeNotificationSnapshot(mappedPackage, notifications),
     trackingUrl,
     qrCodeDataUrl,
     notifications,
@@ -434,67 +510,61 @@ export async function listPackages(options?: {
   search?: string;
   status?: PackageStatus;
 }): Promise<PackageRecord[]> {
-  const sql = getDb();
-  const pattern = options?.search ? `%${options.search.trim()}%` : null;
+  const rows = await withDbConnectionRetry(async () => {
+    const sql = getDb();
+    const pattern = options?.search ? `%${options.search.trim()}%` : null;
 
-  const rows = await sql`
-    select
-      p.*,
-      w.status as week_status,
-      (
-        select nl.delivery_state
+    return sql`
+      select
+        p.*,
+        w.status as week_status,
+        latest_notification.delivery_state as last_delivery_state,
+        latest_notification.sent_at as last_notification_at
+      from packages p
+      join processing_weeks w on w.id = p.week_id
+      left join lateral (
+        select delivery_state, sent_at
         from notification_logs nl
         where nl.package_id = p.id
         order by nl.sent_at desc
         limit 1
-      ) as last_delivery_state,
-      (
-        select nl.sent_at
-        from notification_logs nl
-        where nl.package_id = p.id
-        order by nl.sent_at desc
-        limit 1
-      ) as last_notification_at
-    from packages p
-    join processing_weeks w on w.id = p.week_id
-    where
-      (${pattern}::text is null
-        or p.order_id ilike ${pattern}
-        or p.room_number ilike ${pattern}
-        or p.customer_name ilike ${pattern})
-      and (${options?.status ?? null}::text is null or p.status = ${options?.status ?? null})
-    order by p.created_at desc
-    limit 200
-  `;
+      ) latest_notification on true
+      where
+        (${pattern}::text is null
+          or p.order_id ilike ${pattern}
+          or p.room_number ilike ${pattern}
+          or p.customer_name ilike ${pattern})
+        and (${options?.status ?? null}::text is null or p.status = ${options?.status ?? null})
+      order by p.created_at desc
+      limit 200
+    `;
+  });
 
   return rows.map((row) => mapPackage(row as Record<string, unknown>));
 }
 
 export async function getPackageById(packageId: string): Promise<PackageRecord> {
-  const sql = getDb();
-  const rows = await sql`
-    select
-      p.*,
-      w.status as week_status,
-      (
-        select nl.delivery_state
+  const rows = await withDbConnectionRetry(async () => {
+    const sql = getDb();
+    return sql`
+      select
+        p.*,
+        w.status as week_status,
+        latest_notification.delivery_state as last_delivery_state,
+        latest_notification.sent_at as last_notification_at
+      from packages p
+      join processing_weeks w on w.id = p.week_id
+      left join lateral (
+        select delivery_state, sent_at
         from notification_logs nl
         where nl.package_id = p.id
         order by nl.sent_at desc
         limit 1
-      ) as last_delivery_state,
-      (
-        select nl.sent_at
-        from notification_logs nl
-        where nl.package_id = p.id
-        order by nl.sent_at desc
-        limit 1
-      ) as last_notification_at
-    from packages p
-    join processing_weeks w on w.id = p.week_id
-    where p.id = ${packageId}
-    limit 1
-  `;
+      ) latest_notification on true
+      where p.id = ${packageId}
+      limit 1
+    `;
+  });
 
   if (rows.length === 0) {
     throw new AppError("PACKAGE_NOT_FOUND", 404, "Package not found.");
@@ -506,23 +576,25 @@ export async function getPackageById(packageId: string): Promise<PackageRecord> 
 export async function getPackageNotifications(
   packageId: string,
 ): Promise<NotificationLogRecord[]> {
-  const sql = getDb();
-  const rows = await sql`
-    select
-      id,
-      package_id,
-      trigger_type,
-      status_context,
-      phone_number,
-      provider,
-      provider_message_id,
-      delivery_state,
-      error_text,
-      sent_at
-    from notification_logs
-    where package_id = ${packageId}
-    order by sent_at desc
-  `;
+  const rows = await withDbConnectionRetry(async () => {
+    const sql = getDb();
+    return sql`
+      select
+        id,
+        package_id,
+        trigger_type,
+        status_context,
+        phone_number,
+        provider,
+        provider_message_id,
+        delivery_state,
+        error_text,
+        sent_at
+      from notification_logs
+      where package_id = ${packageId}
+      order by sent_at desc
+    `;
+  });
 
   return rows.map((row) => mapNotification(row as Record<string, unknown>));
 }
@@ -536,67 +608,68 @@ export async function updatePackageStatus(
   skipped: boolean;
   notifications: SmsDispatchResult[];
 }> {
-  const sql = getDb();
+  const updatedPackage = await withDbConnectionRetry(async () => {
+    const sql = getDb();
+    return sql.begin(async (tx) => {
+      const trx = tx as unknown as ReturnType<typeof getDb>;
+      const packageRows = await trx`
+        select p.*, w.status as week_status
+        from packages p
+        join processing_weeks w on w.id = p.week_id
+        where p.id = ${packageId}
+        for update
+      `;
 
-  const updatedPackage = await sql.begin(async (tx) => {
-    const trx = tx as unknown as ReturnType<typeof getDb>;
-    const packageRows = await trx`
-      select p.*, w.status as week_status
-      from packages p
-      join processing_weeks w on w.id = p.week_id
-      where p.id = ${packageId}
-      for update
-    `;
+      if (packageRows.length === 0) {
+        throw new AppError("PACKAGE_NOT_FOUND", 404, "Package not found.");
+      }
 
-    if (packageRows.length === 0) {
-      throw new AppError("PACKAGE_NOT_FOUND", 404, "Package not found.");
-    }
+      const existing = mapPackage(packageRows[0] as Record<string, unknown>);
 
-    const existing = mapPackage(packageRows[0] as Record<string, unknown>);
+      if (existing.status === nextStatus) {
+        return { package: existing, skipped: true };
+      }
 
-    if (existing.status === nextStatus) {
-      return { package: existing, skipped: true };
-    }
+      if (!isForwardTransition(existing.status, nextStatus)) {
+        throw new AppError(
+          "INVALID_STATUS_TRANSITION",
+          409,
+          `Cannot move status from ${existing.status} to ${nextStatus}.`,
+        );
+      }
 
-    if (!isForwardTransition(existing.status, nextStatus)) {
-      throw new AppError(
-        "INVALID_STATUS_TRANSITION",
-        409,
-        `Cannot move status from ${existing.status} to ${nextStatus}.`,
-      );
-    }
+      const now = new Date();
+      const isPickedUp = nextStatus === "PICKED_UP";
 
-    const now = new Date();
-    const isPickedUp = nextStatus === "PICKED_UP";
+      const rows = await trx`
+        update packages
+        set
+          status = ${nextStatus},
+          updated_at = ${now.toISOString()},
+          picked_up_at = ${isPickedUp ? now.toISOString() : existing.picked_up_at},
+          expires_at = ${isPickedUp ? now.toISOString() : existing.expires_at}
+        where id = ${packageId}
+        returning *
+      `;
 
-    const rows = await trx`
-      update packages
-      set
-        status = ${nextStatus},
-        updated_at = ${now.toISOString()},
-        picked_up_at = ${isPickedUp ? now.toISOString() : existing.picked_up_at},
-        expires_at = ${isPickedUp ? now.toISOString() : existing.expires_at}
-      where id = ${packageId}
-      returning *
-    `;
+      await trx`
+        insert into package_status_events
+          (package_id, from_status, to_status, changed_by, changed_at)
+        values
+          (${packageId}, ${existing.status}, ${nextStatus}, ${userId}, now())
+      `;
 
-    await trx`
-      insert into package_status_events
-        (package_id, from_status, to_status, changed_by, changed_at)
-      values
-        (${packageId}, ${existing.status}, ${nextStatus}, ${userId}, now())
-    `;
-
-    const row = rows[0] as Record<string, unknown>;
-    return {
-      package: mapPackage({
-        ...row,
-        week_status: existing.week_status,
-        last_delivery_state: existing.last_delivery_state,
-        last_notification_at: existing.last_notification_at,
-      }),
-      skipped: false,
-    };
+      const row = rows[0] as Record<string, unknown>;
+      return {
+        package: mapPackage({
+          ...row,
+          week_status: existing.week_status,
+          last_delivery_state: existing.last_delivery_state,
+          last_notification_at: existing.last_notification_at,
+        }),
+        skipped: false,
+      };
+    });
   });
 
   if (updatedPackage.skipped) {
@@ -607,21 +680,14 @@ export async function updatePackageStatus(
     };
   }
 
-  const trackingUrl = await createTrackingUrl(
-    updatedPackage.package.id,
-    updatedPackage.package.tracking_token_id,
-    new Date(updatedPackage.package.expires_at),
-  );
-
   const notifications = await dispatchPackageSms({
     packageRecord: updatedPackage.package,
     triggerType: "STATUS_CHANGED",
     statusContext: nextStatus,
-    trackingUrl,
   });
 
   return {
-    package: updatedPackage.package,
+    package: mergeNotificationSnapshot(updatedPackage.package, notifications),
     skipped: false,
     notifications,
   };

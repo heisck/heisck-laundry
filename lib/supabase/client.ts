@@ -2,9 +2,23 @@
 
 import { createBrowserClient } from "@supabase/ssr";
 
+const MIN_SUPABASE_FETCH_TIMEOUT_MS = 10000;
+
+function readEnvNumber(value: string | undefined): number | null {
+  if (!value) {
+    return null;
+  }
+
+  const normalized = value.trim().replace(/^['"]|['"]$/g, "");
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 function getSupabaseFetchTimeoutMs(): number {
-  const raw = Number(process.env.NEXT_PUBLIC_SUPABASE_FETCH_TIMEOUT_MS ?? 6000);
-  return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 6000;
+  const raw = readEnvNumber(process.env.NEXT_PUBLIC_SUPABASE_FETCH_TIMEOUT_MS);
+  return raw !== null && raw > 0
+    ? Math.max(Math.floor(raw), MIN_SUPABASE_FETCH_TIMEOUT_MS)
+    : MIN_SUPABASE_FETCH_TIMEOUT_MS;
 }
 
 async function fetchWithTimeout(

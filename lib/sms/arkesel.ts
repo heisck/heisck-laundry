@@ -27,6 +27,11 @@ interface ArkeselApiResponse {
   id?: string;
 }
 
+function getArkeselRequestTimeoutMs(): number {
+  const raw = Number(process.env.ARKESEL_REQUEST_TIMEOUT_MS ?? 5000);
+  return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 5000;
+}
+
 function safeToString(value: unknown): string | null {
   return typeof value === "string" && value.trim().length > 0
     ? value.trim()
@@ -96,9 +101,15 @@ export async function sendArkeselSms(
     };
   }
 
-  const response = await fetch(
-    `${baseUrl.replace(/\/$/, "")}/api/v2/sms/send`,
-    {
+  const controller = new AbortController();
+  const timeout = setTimeout(
+    () => controller.abort(),
+    getArkeselRequestTimeoutMs(),
+  );
+
+  let response: Response;
+  try {
+    response = await fetch(`${baseUrl.replace(/\/$/, "")}/api/v2/sms/send`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -111,8 +122,30 @@ export async function sendArkeselSms(
         message: input.content,
         recipients: [normalizeRecipient(input.to)],
       }),
-    },
-  );
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      return {
+        ok: false,
+        providerMessageId: null,
+        deliveryState: "FAILED",
+        errorText: "Arkesel request timed out.",
+      };
+    }
+
+    return {
+      ok: false,
+      providerMessageId: null,
+      deliveryState: "FAILED",
+      errorText:
+        error instanceof Error
+          ? error.message
+          : "Unable to reach Arkesel.",
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
 
   const payload = (await safeJson(response)) as ArkeselApiResponse | null;
   const providerMessageId =

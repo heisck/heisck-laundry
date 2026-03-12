@@ -28,16 +28,19 @@ cp .env.example .env.local
 3. Set environment variables in `.env.local`:
 - `NEXT_PUBLIC_SUPABASE_URL`
 - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-- `SUPABASE_FETCH_TIMEOUT_MS` (default `6000`)
-- `NEXT_PUBLIC_SUPABASE_FETCH_TIMEOUT_MS` (default `6000`)
+- `SUPABASE_FETCH_TIMEOUT_MS` (default `10000`, minimum enforced `10000`)
+- `NEXT_PUBLIC_SUPABASE_FETCH_TIMEOUT_MS` (default `10000`, minimum enforced `10000`)
 - `DATABASE_URL`
 - `DATABASE_POOL_MAX` (default `3`)
-- `DATABASE_CONNECT_TIMEOUT_SECONDS` (default `5`)
+- `DATABASE_CONNECT_TIMEOUT_SECONDS` (default `15`, minimum enforced `15`)
 - `DATABASE_IDLE_TIMEOUT_SECONDS` (default `20`)
+- `DATABASE_RETRY_ATTEMPTS` (default `2`)
+- `DATABASE_RETRY_DELAY_MS` (default `500`)
 - `DATABASE_SSL_MODE` (`require` for Supabase)
 - `TRACKING_TOKEN_SECRET` (minimum 32 characters)
 - `NEXT_PUBLIC_APP_URL` (e.g. `http://localhost:3000`)
 - `ARKESEL_BASE_URL` (default `https://sms.arkesel.com`)
+- `ARKESEL_REQUEST_TIMEOUT_MS` (default `5000`)
 - `ARKESEL_API_KEY`
 - `ARKESEL_SENDER_ID` (max 11 characters; must match your approved sender ID)
 - `CRON_SECRET` (recommended for cron endpoint protection)

@@ -1,5 +1,7 @@
 "use client";
 
+const DEFAULT_CLIENT_TIMEOUT_MS = 20000;
+
 export function cn(...inputs: Array<string | false | null | undefined>): string {
   return inputs.filter(Boolean).join(" ");
 }
@@ -24,7 +26,7 @@ export async function parseApiResponse<T>(response: Response): Promise<T> {
 export async function fetchWithTimeout(
   input: RequestInfo | URL,
   init?: RequestInit,
-  timeoutMs = 10000,
+  timeoutMs = DEFAULT_CLIENT_TIMEOUT_MS,
 ): Promise<Response> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
@@ -37,7 +39,7 @@ export async function fetchWithTimeout(
   } catch (error) {
     if (error instanceof DOMException && error.name === "AbortError") {
       throw new Error(
-        "Request timed out while contacting the server. Check database connectivity and env settings.",
+        "The server took too long to respond. Refresh and confirm the latest state.",
       );
     }
 
