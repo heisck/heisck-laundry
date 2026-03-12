@@ -4,12 +4,21 @@ import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import {
+  calculatePackagePricing,
+  getPackageTypeLabel,
+  getPackageTypeOptionLabel,
+  getPackageTypeTurnaroundLabel,
+  getSuggestedEtaDate,
+} from "@/lib/package-pricing";
 import { getStatusLabel } from "@/lib/status";
 import { formatAccraDateTime } from "@/lib/time";
 import {
   PACKAGE_STATUSES,
+  PACKAGE_TYPES,
   type PackageRecord,
   type PackageStatus,
+  type PackageType,
   type ProcessingWeek,
 } from "@/lib/types";
 
@@ -33,9 +42,9 @@ interface PackagesPageClientProps {
 interface CreatePackageForm {
   customerName: string;
   roomNumber: string;
+  packageType: PackageType;
   clothesCount: string;
   totalWeightKg: string;
-  totalPriceGhs: string;
   primaryPhone: string;
   secondaryPhone: string;
   etaAt: string;
@@ -82,9 +91,9 @@ const STATUS_ORDER: Record<PackageStatus, number> = {
 const initialPackageForm: CreatePackageForm = {
   customerName: "",
   roomNumber: "",
+  packageType: "NORMAL_WASH_DRY",
   clothesCount: "",
   totalWeightKg: "",
-  totalPriceGhs: "",
   primaryPhone: "",
   secondaryPhone: "",
   etaAt: "",
@@ -164,7 +173,7 @@ export function PackagesPageClient({
   const [statusFilter, setStatusFilter] = useState<PackageStatus | "ALL">("ALL");
   const [createForm, setCreateForm] = useState<CreatePackageForm>({
     ...initialPackageForm,
-    etaAt: toLocalDatetimeValue(new Date(Date.now() + 6 * 60 * 60 * 1000)),
+    etaAt: toLocalDatetimeValue(getSuggestedEtaDate("NORMAL_WASH_DRY")),
   });
   const [lastCreated, setLastCreated] = useState<LastCreatedInfo | null>(null);
   const [qrFullscreenOpen, setQrFullscreenOpen] = useState(false);
@@ -209,6 +218,11 @@ export function PackagesPageClient({
       readyCount,
     };
   }, [packages]);
+
+  const pricePreview = useMemo(() => {
+    const weightKg = Number(createForm.totalWeightKg);
+    return calculatePackagePricing(weightKg, createForm.packageType);
+  }, [createForm.packageType, createForm.totalWeightKg]);
 
   async function loadPackagesAndWeek(query?: {
     search?: string;
@@ -289,9 +303,9 @@ export function PackagesPageClient({
         body: JSON.stringify({
           customerName: createForm.customerName,
           roomNumber: createForm.roomNumber,
+          packageType: createForm.packageType,
           clothesCount: createForm.clothesCount,
           totalWeightKg: createForm.totalWeightKg,
-          totalPriceGhs: createForm.totalPriceGhs,
           primaryPhone: createForm.primaryPhone,
           secondaryPhone: createForm.secondaryPhone || undefined,
           etaAt: new Date(createForm.etaAt).toISOString(),
@@ -307,7 +321,7 @@ export function PackagesPageClient({
 
       setCreateForm({
         ...initialPackageForm,
-        etaAt: toLocalDatetimeValue(new Date(Date.now() + 6 * 60 * 60 * 1000)),
+        etaAt: toLocalDatetimeValue(getSuggestedEtaDate("NORMAL_WASH_DRY")),
       });
       setLastCreated({
         orderId: payload.package.order_id,
@@ -512,6 +526,24 @@ export function PackagesPageClient({
               }
               className="input-control"
             />
+            <select
+              value={createForm.packageType}
+              onChange={(event) => {
+                const packageType = event.target.value as PackageType;
+                setCreateForm((prev) => ({
+                  ...prev,
+                  packageType,
+                  etaAt: toLocalDatetimeValue(getSuggestedEtaDate(packageType)),
+                }));
+              }}
+              className="input-control"
+            >
+              {PACKAGE_TYPES.map((packageType) => (
+                <option key={packageType} value={packageType}>
+                  {getPackageTypeOptionLabel(packageType)}
+                </option>
+              ))}
+            </select>
             <input
               type="number"
               min={0}
@@ -526,7 +558,7 @@ export function PackagesPageClient({
             />
             <input
               type="number"
-              min={0}
+              min={0.01}
               step={0.01}
               placeholder="Total weight (kg)"
               required
@@ -537,16 +569,10 @@ export function PackagesPageClient({
               className="input-control"
             />
             <input
-              type="number"
-              min={0}
-              step={0.01}
-              placeholder="Total price (GHS)"
-              required
-              value={createForm.totalPriceGhs}
-              onChange={(event) =>
-                setCreateForm((prev) => ({ ...prev, totalPriceGhs: event.target.value }))
-              }
-              className="input-control"
+              type="text"
+              readOnly
+              value={`GHS ${pricePreview.totalPriceGhs.toFixed(2)}`}
+              className="input-control bg-slate-50 font-semibold text-slate-700"
             />
             <input
               type="tel"
@@ -576,6 +602,45 @@ export function PackagesPageClient({
               }
               className="input-control"
             />
+
+            <div className="sm:col-span-2 grid gap-3 rounded-2xl border border-slate-200 bg-slate-50/80 p-4 md:grid-cols-2 xl:grid-cols-5">
+              <div className="rounded-xl border border-slate-200 bg-white px-3 py-3">
+                <p className="text-xs uppercase tracking-wider text-slate-500">
+                  Rounded Weight
+                </p>
+                <p className="mt-1 font-semibold text-slate-900">
+                  {pricePreview.roundedWeightKg.toFixed(1)} kg
+                </p>
+              </div>
+              <div className="rounded-xl border border-slate-200 bg-white px-3 py-3">
+                <p className="text-xs uppercase tracking-wider text-slate-500">
+                  Package Rate
+                </p>
+                <p className="mt-1 font-semibold text-slate-900">
+                  GHS {pricePreview.ratePerKg.toFixed(2)}/kg
+                </p>
+              </div>
+              <div className="rounded-xl border border-slate-200 bg-white px-3 py-3">
+                <p className="text-xs uppercase tracking-wider text-slate-500">
+                  Fixed Charge
+                </p>
+                <p className="mt-1 font-semibold text-slate-900">
+                  GHS {pricePreview.fixedChargeGhs.toFixed(2)}
+                </p>
+              </div>
+              <div className="rounded-xl border border-slate-200 bg-white px-3 py-3">
+                <p className="text-xs uppercase tracking-wider text-slate-500">Total Price</p>
+                <p className="mt-1 font-semibold text-slate-900">
+                  GHS {pricePreview.totalPriceGhs.toFixed(2)}
+                </p>
+              </div>
+              <div className="rounded-xl border border-slate-200 bg-white px-3 py-3">
+                <p className="text-xs uppercase tracking-wider text-slate-500">Turnaround</p>
+                <p className="mt-1 font-semibold text-slate-900">
+                  {getPackageTypeTurnaroundLabel(createForm.packageType)}
+                </p>
+              </div>
+            </div>
 
             <div className="sm:col-span-2 flex flex-wrap gap-2">
               <button
@@ -697,6 +762,7 @@ export function PackagesPageClient({
               <tr className="border-b border-slate-200 bg-slate-50/80 text-left text-xs uppercase tracking-wider text-slate-500">
                 <th className="px-3 py-3 font-semibold">Order</th>
                 <th className="px-3 py-3 font-semibold">Customer</th>
+                <th className="px-3 py-3 font-semibold">Package</th>
                 <th className="px-3 py-3 font-semibold">Room</th>
                 <th className="px-3 py-3 font-semibold">Weight</th>
                 <th className="px-3 py-3 font-semibold">Price</th>
@@ -710,6 +776,7 @@ export function PackagesPageClient({
                 <tr key={pkg.id} className="text-slate-700 transition hover:bg-slate-50/60">
                   <td className="px-3 py-3 font-semibold text-slate-900">{pkg.order_id}</td>
                   <td className="px-3 py-3">{pkg.customer_name}</td>
+                  <td className="px-3 py-3">{getPackageTypeLabel(pkg.package_type)}</td>
                   <td className="px-3 py-3">{pkg.room_number}</td>
                   <td className="px-3 py-3">{pkg.total_weight_kg.toFixed(2)} kg</td>
                   <td className="px-3 py-3">GHS {pkg.total_price_ghs.toFixed(2)}</td>
@@ -766,7 +833,7 @@ export function PackagesPageClient({
               ))}
               {packages.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="px-3 py-8 text-center text-slate-500">
+                  <td colSpan={9} className="px-3 py-8 text-center text-slate-500">
                     No packages match the current filters.
                   </td>
                 </tr>

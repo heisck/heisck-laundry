@@ -4,6 +4,10 @@ import QRCode from "qrcode";
 import { AppError } from "@/lib/app-error";
 import { getDb, withDbConnectionRetry } from "@/lib/db";
 import { buildOrderId, buildOrderPrefix } from "@/lib/order-id";
+import {
+  calculatePackagePricing,
+  getSuggestedEtaDate,
+} from "@/lib/package-pricing";
 import { dedupePhones, normalizeGhanaPhone } from "@/lib/phone";
 import { sendArkeselSms } from "@/lib/sms/arkesel";
 import { isForwardTransition } from "@/lib/status";
@@ -14,17 +18,18 @@ import type {
   NotificationTriggerType,
   PackageRecord,
   PackageStatus,
+  PackageType,
 } from "@/lib/types";
 
 interface CreatePackageInput {
   customerName: string;
   roomNumber: string;
+  packageType: PackageType;
   clothesCount: number;
   totalWeightKg: number;
-  totalPriceGhs: number;
   primaryPhone: string;
   secondaryPhone?: string | null;
-  etaAt: string;
+  etaAt?: string | null;
 }
 
 interface SmsDispatchResult {
@@ -60,6 +65,7 @@ function mapPackage(row: Record<string, unknown>): PackageRecord {
     tracking_token_id: String(row.tracking_token_id),
     customer_name: String(row.customer_name),
     room_number: String(row.room_number),
+    package_type: String(row.package_type ?? "NORMAL_WASH_DRY") as PackageType,
     clothes_count: Number(row.clothes_count ?? 0),
     total_weight_kg: toNumber(row.total_weight_kg),
     total_price_ghs: toNumber(row.total_price_ghs),
@@ -346,10 +352,12 @@ export async function createPackage(
     );
   }
 
-  const eta = new Date(input.etaAt);
+  const suggestedEta = getSuggestedEtaDate(input.packageType);
+  const eta = input.etaAt ? new Date(input.etaAt) : suggestedEta;
   if (Number.isNaN(eta.getTime())) {
     throw new AppError("INVALID_ETA", 400, "ETA must be a valid date/time.");
   }
+  const pricing = calculatePackagePricing(input.totalWeightKg, input.packageType);
 
   const prefix = buildOrderPrefix(input.roomNumber, input.customerName);
   const trackingTokenId = randomUUID();
@@ -415,6 +423,7 @@ export async function createPackage(
               tracking_token_id,
               customer_name,
               room_number,
+              package_type,
               clothes_count,
               total_weight_kg,
               total_price_ghs,
@@ -435,9 +444,10 @@ export async function createPackage(
               ${trackingTokenId},
               ${input.customerName.trim()},
               ${input.roomNumber.trim()},
+              ${input.packageType},
               ${input.clothesCount},
-              ${input.totalWeightKg},
-              ${input.totalPriceGhs},
+              ${pricing.roundedWeightKg},
+              ${pricing.totalPriceGhs},
               ${normalizedPrimary},
               ${normalizedSecondary},
               'RECEIVED',

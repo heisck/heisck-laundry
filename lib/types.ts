@@ -8,6 +8,14 @@ export const PACKAGE_STATUSES = [
 
 export type PackageStatus = (typeof PACKAGE_STATUSES)[number];
 
+export const PACKAGE_TYPES = [
+  "WASH_ONLY",
+  "NORMAL_WASH_DRY",
+  "EXPRESS_WASH_DRY",
+] as const;
+
+export type PackageType = (typeof PACKAGE_TYPES)[number];
+
 export const PROCESSING_WEEK_STATUSES = ["ACTIVE", "CLOSED"] as const;
 export type ProcessingWeekStatus = (typeof PROCESSING_WEEK_STATUSES)[number];
 
@@ -39,6 +47,7 @@ export interface PackageRecord {
   tracking_token_id: string;
   customer_name: string;
   room_number: string;
+  package_type: PackageType;
   clothes_count: number;
   total_weight_kg: number;
   total_price_ghs: number;

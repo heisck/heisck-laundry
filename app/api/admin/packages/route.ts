@@ -4,17 +4,17 @@ import { z } from "zod";
 import { requireApiUser } from "@/lib/auth";
 import { handleApiError } from "@/lib/api";
 import { createPackage, listPackages } from "@/lib/services/packages";
-import { PACKAGE_STATUSES } from "@/lib/types";
+import { PACKAGE_STATUSES, PACKAGE_TYPES } from "@/lib/types";
 
 const createPackageSchema = z.object({
   customerName: z.string().trim().min(1).max(120),
   roomNumber: z.string().trim().min(1).max(64),
+  packageType: z.enum(PACKAGE_TYPES),
   clothesCount: z.coerce.number().int().nonnegative(),
-  totalWeightKg: z.coerce.number().nonnegative(),
-  totalPriceGhs: z.coerce.number().nonnegative(),
+  totalWeightKg: z.coerce.number().positive(),
   primaryPhone: z.string().trim().min(1).max(20),
   secondaryPhone: z.string().trim().max(20).optional(),
-  etaAt: z.string().datetime(),
+  etaAt: z.string().datetime().optional(),
 });
 
 const statusSchema = z.enum(PACKAGE_STATUSES);

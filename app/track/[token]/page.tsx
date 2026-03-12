@@ -1,8 +1,9 @@
+import { getPackageTypeLabel } from "@/lib/package-pricing";
 import { getDb } from "@/lib/db";
 import { getStatusLabel } from "@/lib/status";
 import { formatAccraDateTime } from "@/lib/time";
 import { verifyTrackingToken } from "@/lib/tracking-token";
-import type { PackageStatus } from "@/lib/types";
+import type { PackageStatus, PackageType } from "@/lib/types";
 
 interface Params {
   params: Promise<{ token: string }>;
@@ -14,6 +15,7 @@ interface TrackPackageRow {
   tracking_token_id: string;
   customer_name: string;
   room_number: string;
+  package_type: PackageType;
   clothes_count: number;
   total_weight_kg: number;
   total_price_ghs: number;
@@ -103,6 +105,7 @@ export default async function TrackPackagePage({ params }: Params) {
       tracking_token_id,
       customer_name,
       room_number,
+      package_type,
       clothes_count,
       total_weight_kg,
       total_price_ghs,
@@ -166,6 +169,7 @@ export default async function TrackPackagePage({ params }: Params) {
         <div className="grid gap-3 p-5 md:grid-cols-2">
           <InfoCard label="Customer Name" value={record.customer_name} />
           <InfoCard label="Room Number" value={record.room_number} />
+          <InfoCard label="Package Type" value={getPackageTypeLabel(record.package_type)} />
           <InfoCard label="Clothes Count" value={String(record.clothes_count)} />
           <InfoCard label="Weight" value={`${Number(record.total_weight_kg).toFixed(2)} kg`} />
           <InfoCard label="Total Price" value={`GHS ${Number(record.total_price_ghs).toFixed(2)}`} />
