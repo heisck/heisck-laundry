@@ -5,7 +5,6 @@ import { handleApiError } from "@/lib/api";
 import {
   getPackageById,
   getPackageNotifications,
-  retryPackageNotifications,
 } from "@/lib/services/packages";
 
 interface Params {
@@ -36,6 +35,7 @@ export async function POST(_request: Request, { params }: Params) {
 
   try {
     const { id } = await params;
+    const { retryPackageNotifications } = await import("@/lib/services/packages");
     const result = await retryPackageNotifications(id);
     return NextResponse.json(result);
   } catch (error) {
