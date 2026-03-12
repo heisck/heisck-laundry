@@ -78,7 +78,9 @@ npm run dev
 ## Cron
 
 `vercel.json` is configured to call:
-`/api/cron/weeks/auto-close` every 30 minutes.
+`/api/cron/weeks/auto-close` once per day at `00:00 UTC`.
+
+This schedule is compatible with Vercel Hobby. If you move to Vercel Pro, you can switch back to a more frequent cron.
 
 If `CRON_SECRET` is set, pass it in `x-cron-secret` header (or `?secret=` query).
 
