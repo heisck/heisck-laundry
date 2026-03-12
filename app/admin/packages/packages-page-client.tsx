@@ -141,6 +141,10 @@ function statusPill(status: PackageStatus): string {
   return "bg-slate-100 text-slate-700";
 }
 
+function canRetrySms(deliveryState: string | null): boolean {
+  return deliveryState === "FAILED";
+}
+
 function SkeletonPackagesPage({ userEmail }: { userEmail: string }) {
   return (
     <AdminShell
@@ -886,14 +890,16 @@ export function PackagesPageClient({
                         {formatAccraDateTime(pkg.last_notification_at)}
                       </p>
                     ) : null}
-                    <button
-                      type="button"
-                      onClick={() => void handleRetrySms(pkg.id)}
-                      disabled={isBusy}
-                      className="btn btn-secondary mt-2"
-                    >
-                      {pendingSmsRetryPackageId === pkg.id ? "Retrying..." : "Retry SMS"}
-                    </button>
+                    {canRetrySms(pkg.last_delivery_state) ? (
+                      <button
+                        type="button"
+                        onClick={() => void handleRetrySms(pkg.id)}
+                        disabled={isBusy}
+                        className="btn btn-secondary mt-2"
+                      >
+                        {pendingSmsRetryPackageId === pkg.id ? "Retrying..." : "Retry SMS"}
+                      </button>
+                    ) : null}
                   </td>
                 </tr>
               ))}
