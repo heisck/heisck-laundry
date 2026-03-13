@@ -538,6 +538,82 @@ export function PackagesPageClient({
     );
   }
 
+  function renderStatusUpdateControls(pkg: PackageRecord) {
+    const selectedStatus = getSelectedStatus(pkg);
+    const payableTask = getPayableTaskForStatus(pkg.package_type, selectedStatus);
+    const needsWorker = selectedStatus !== pkg.status && payableTask !== null;
+
+    return (
+      <>
+        <select
+          value={selectedStatus}
+          disabled={isBusy || pkg.status === "PICKED_UP"}
+          onChange={(event) =>
+            setStatusDrafts((prev) => ({
+              ...prev,
+              [pkg.id]: event.target.value as PackageStatus,
+            }))
+          }
+          className="input-control py-2 text-xs"
+        >
+          {statusOptionsFor(pkg.status).map((status) => (
+            <option key={status} value={status}>
+              {getStatusLabel(status)}
+            </option>
+          ))}
+        </select>
+        {needsWorker ? (
+          <p className="mt-2 text-xs leading-5 text-slate-500">
+            Worker selection opens in the next step for{" "}
+            {getTaskLabel(payableTask.taskType)}.
+          </p>
+        ) : null}
+        {selectedStatus !== pkg.status ? (
+          <button
+            type="button"
+            onClick={() =>
+              needsWorker
+                ? handleOpenStatusDialog(pkg)
+                : void handleStatusChange(
+                    pkg.id,
+                    pkg.order_id,
+                    selectedStatus,
+                    "NOBODY",
+                  )
+            }
+            disabled={isBusy}
+            className="btn btn-secondary mt-2 w-full"
+          >
+            {needsWorker ? "Choose Worker" : "Apply Status"}
+          </button>
+        ) : null}
+      </>
+    );
+  }
+
+  function renderSmsInfo(pkg: PackageRecord) {
+    return (
+      <>
+        <p>{pkg.last_delivery_state ?? "No message yet"}</p>
+        {pkg.last_notification_at ? (
+          <p className="mt-1 text-xs text-slate-500">
+            {formatAccraDateTime(pkg.last_notification_at)}
+          </p>
+        ) : null}
+        {canRetrySms(pkg.last_delivery_state) ? (
+          <button
+            type="button"
+            onClick={() => void handleRetrySms(pkg.id)}
+            disabled={isBusy}
+            className="btn btn-secondary mt-2 w-full sm:w-auto"
+          >
+            {pendingSmsRetryPackageId === pkg.id ? "Retrying..." : "Retry SMS"}
+          </button>
+        ) : null}
+      </>
+    );
+  }
+
   async function handleStatusChange(
     packageId: string,
     orderId: string,
@@ -1012,7 +1088,62 @@ export function PackagesPageClient({
           </div>
         </div>
 
-        <div className="table-wrap">
+        <div className="space-y-4 p-4 md:hidden">
+          {visiblePackages.map((pkg) => (
+            <article key={pkg.id} className="metric-tile p-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <p className="font-display text-xl font-semibold text-slate-950">
+                    {pkg.order_id}
+                  </p>
+                  <p className="mt-1 text-sm leading-6 text-slate-600">
+                    {pkg.customer_name} • Room {pkg.room_number}
+                  </p>
+                </div>
+                <span className={cn("status-chip", statusPill(pkg.status))}>
+                  {getStatusLabel(pkg.status)}
+                </span>
+              </div>
+
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                <div className="surface-subtle px-4 py-3">
+                  <p className="label-kicker">Package</p>
+                  <p className="mt-2 text-sm font-semibold text-slate-950">
+                    {getPackageTypeLabel(pkg.package_type)}
+                  </p>
+                </div>
+                <div className="surface-subtle px-4 py-3">
+                  <p className="label-kicker">Weight</p>
+                  <p className="mt-2 text-sm font-semibold text-slate-950">
+                    {pkg.total_weight_kg.toFixed(2)} kg
+                  </p>
+                </div>
+                <div className="surface-subtle px-4 py-3">
+                  <p className="label-kicker">Price</p>
+                  <p className="mt-2 text-sm font-semibold text-slate-950">
+                    GHS {pkg.total_price_ghs.toFixed(2)}
+                  </p>
+                </div>
+                <div className="surface-subtle px-4 py-3">
+                  <p className="label-kicker">SMS</p>
+                  <div className="mt-2 text-sm text-slate-700">{renderSmsInfo(pkg)}</div>
+                </div>
+              </div>
+
+              <div className="mt-4 rounded-[1.1rem] border border-slate-200 bg-white/82 p-4">
+                <p className="label-kicker">Update Status</p>
+                <div className="mt-3">{renderStatusUpdateControls(pkg)}</div>
+              </div>
+            </article>
+          ))}
+          {visiblePackages.length === 0 ? (
+            <p className="metric-tile p-5 text-center text-sm leading-6 text-slate-500">
+              No packages match the current filters.
+            </p>
+          ) : null}
+        </div>
+
+        <div className="table-wrap hidden md:block">
           <table className="data-table min-w-[980px]">
             <thead>
               <tr className="text-left">
@@ -1047,79 +1178,10 @@ export function PackagesPageClient({
                     </span>
                   </td>
                   <td className="w-[20rem] min-w-[20rem]">
-                    {(() => {
-                      const selectedStatus = getSelectedStatus(pkg);
-                      const payableTask = getPayableTaskForStatus(
-                        pkg.package_type,
-                        selectedStatus,
-                      );
-                      const needsWorker = selectedStatus !== pkg.status && payableTask !== null;
-
-                      return (
-                        <>
-                          <select
-                            value={selectedStatus}
-                            disabled={isBusy || pkg.status === "PICKED_UP"}
-                            onChange={(event) =>
-                              setStatusDrafts((prev) => ({
-                                ...prev,
-                                [pkg.id]: event.target.value as PackageStatus,
-                              }))
-                            }
-                            className="input-control py-2 text-xs"
-                          >
-                            {statusOptionsFor(pkg.status).map((status) => (
-                              <option key={status} value={status}>
-                                {getStatusLabel(status)}
-                              </option>
-                            ))}
-                          </select>
-                          {needsWorker ? (
-                            <p className="mt-2 text-xs leading-5 text-slate-500">
-                              Worker selection opens in the next step for{" "}
-                              {getTaskLabel(payableTask.taskType)}.
-                            </p>
-                          ) : null}
-                          {selectedStatus !== pkg.status ? (
-                            <button
-                              type="button"
-                              onClick={() =>
-                                needsWorker
-                                  ? handleOpenStatusDialog(pkg)
-                                  : void handleStatusChange(
-                                      pkg.id,
-                                      pkg.order_id,
-                                      selectedStatus,
-                                      "NOBODY",
-                                    )
-                              }
-                              disabled={isBusy}
-                              className="btn btn-secondary mt-2 w-full"
-                            >
-                              {needsWorker ? "Choose Worker" : "Apply Status"}
-                            </button>
-                          ) : null}
-                        </>
-                      );
-                    })()}
+                    {renderStatusUpdateControls(pkg)}
                   </td>
                   <td className="w-[13rem] min-w-[13rem]">
-                    <p>{pkg.last_delivery_state ?? "No message yet"}</p>
-                    {pkg.last_notification_at ? (
-                      <p className="mt-1 text-xs text-slate-500">
-                        {formatAccraDateTime(pkg.last_notification_at)}
-                      </p>
-                    ) : null}
-                    {canRetrySms(pkg.last_delivery_state) ? (
-                      <button
-                        type="button"
-                        onClick={() => void handleRetrySms(pkg.id)}
-                        disabled={isBusy}
-                        className="btn btn-secondary mt-2"
-                      >
-                        {pendingSmsRetryPackageId === pkg.id ? "Retrying..." : "Retry SMS"}
-                      </button>
-                    ) : null}
+                    {renderSmsInfo(pkg)}
                   </td>
                 </tr>
               ))}
@@ -1137,7 +1199,7 @@ export function PackagesPageClient({
 
       {statusDialog ? (
         <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/48 px-4 py-6 backdrop-blur-sm">
-          <div className="glass-card w-full max-w-[720px] overflow-hidden">
+          <div className="glass-card max-h-[calc(100vh-2rem)] w-full max-w-[720px] overflow-auto">
             <div className="border-b border-slate-200/70 px-5 py-4">
               <p className="label-kicker">Status Update</p>
               <h3 className="font-display mt-2 text-2xl font-semibold text-slate-950">

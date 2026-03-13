@@ -24,7 +24,7 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-body), "Segoe UI", sans-serif;
+  --font-sans: "Aptos", "Segoe UI Variable", "Segoe UI", sans-serif;
 }
 
 * {
@@ -42,7 +42,7 @@ body {
     radial-gradient(circle at top right, rgba(209, 240, 235, 0.78), transparent 26%),
     linear-gradient(180deg, rgba(255, 250, 243, 0.98) 0%, rgba(244, 239, 230, 1) 100%);
   color: var(--foreground);
-  font-family: var(--font-body), "Segoe UI", sans-serif;
+  font-family: "Aptos", "Segoe UI Variable", "Segoe UI", sans-serif;
   line-height: 1.5;
 }
 
@@ -68,7 +68,7 @@ textarea {
 }
 
 .font-display {
-  font-family: var(--font-display), var(--font-body), sans-serif;
+  font-family: "Trebuchet MS", "Aptos Display", "Aptos", "Segoe UI Variable", sans-serif;
 }
 
 .glass-card {

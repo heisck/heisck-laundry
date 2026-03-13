@@ -285,7 +285,62 @@ export function SummaryPageClient({
         <div className="border-b border-slate-200/70 px-5 py-4">
           <p className="label-kicker">Worker Payout Tracker</p>
         </div>
-        <div className="table-wrap">
+        <div className="space-y-4 p-4 md:hidden">
+          {workerPayoutSummaries.map((summary) => (
+            <article key={summary.worker_name} className="metric-tile p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="font-display text-xl font-semibold text-slate-950">
+                    {getWorkerLabel(summary.worker_name)}
+                  </p>
+                  <p className="mt-1 text-sm leading-6 text-slate-500">
+                    Grand total: GHS {summary.grand_total_ghs.toFixed(2)}
+                  </p>
+                </div>
+              </div>
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                <div className="surface-subtle px-4 py-3">
+                  <p className="label-kicker">Washing</p>
+                  <p className="mt-2 text-sm font-semibold text-slate-950">
+                    {summary.washing_count}
+                  </p>
+                </div>
+                <div className="surface-subtle px-4 py-3">
+                  <p className="label-kicker">Drying Downstairs</p>
+                  <p className="mt-2 text-sm font-semibold text-slate-950">
+                    {summary.drying_downstairs_count}
+                  </p>
+                </div>
+                <div className="surface-subtle px-4 py-3">
+                  <p className="label-kicker">Removed From Line</p>
+                  <p className="mt-2 text-sm font-semibold text-slate-950">
+                    {summary.removed_from_line_count}
+                  </p>
+                </div>
+                <div className="surface-subtle px-4 py-3">
+                  <p className="label-kicker">Dryer Operation</p>
+                  <p className="mt-2 text-sm font-semibold text-slate-950">
+                    {summary.dryer_operation_count}
+                  </p>
+                </div>
+                <div className="surface-subtle px-4 py-3">
+                  <p className="label-kicker">Your Side</p>
+                  <p className="mt-2 text-sm font-semibold text-slate-950">
+                    GHS {summary.your_side_total_ghs.toFixed(2)}
+                  </p>
+                </div>
+                <div className="surface-subtle px-4 py-3">
+                  <p className="label-kicker">Partner Side</p>
+                  <p className="mt-2 text-sm font-semibold text-slate-950">
+                    GHS {summary.partner_side_total_ghs.toFixed(2)}
+                  </p>
+                </div>
+              </div>
+            </article>
+          ))}
+        </div>
+
+        <div className="table-wrap hidden md:block">
           <table className="data-table min-w-[860px]">
             <thead>
               <tr className="text-left">
@@ -422,7 +477,46 @@ export function SummaryPageClient({
         {weeks.length === 0 ? (
           <p className="p-5 text-sm leading-6 text-slate-500">No weekly totals available yet.</p>
         ) : (
-          <div className="table-wrap">
+          <>
+            <div className="space-y-4 p-4 md:hidden">
+              {weeks.map((week) => (
+                <article key={week.id} className="metric-tile p-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <p className="font-display text-xl font-semibold text-slate-950">
+                        {week.label}
+                      </p>
+                      <p className="mt-1 text-sm leading-6 text-slate-500">
+                        {formatAccraDateTime(week.start_at)} - {formatAccraDateTime(week.end_at)}
+                      </p>
+                    </div>
+                    <span className="pill-soft">{week.status}</span>
+                  </div>
+                  <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                    <div className="surface-subtle px-4 py-3">
+                      <p className="label-kicker">Packages</p>
+                      <p className="mt-2 text-sm font-semibold text-slate-950">
+                        {week.package_count ?? 0}
+                      </p>
+                    </div>
+                    <div className="surface-subtle px-4 py-3">
+                      <p className="label-kicker">Weight</p>
+                      <p className="mt-2 text-sm font-semibold text-slate-950">
+                        {week.total_weight_kg?.toFixed(2) ?? "0.00"} kg
+                      </p>
+                    </div>
+                    <div className="surface-subtle px-4 py-3">
+                      <p className="label-kicker">Revenue</p>
+                      <p className="mt-2 text-sm font-semibold text-slate-950">
+                        GHS {week.total_price_ghs?.toFixed(2) ?? "0.00"}
+                      </p>
+                    </div>
+                  </div>
+                </article>
+              ))}
+            </div>
+
+            <div className="table-wrap hidden md:block">
             <table className="data-table min-w-[760px]">
               <thead>
                 <tr className="text-left">
@@ -454,7 +548,8 @@ export function SummaryPageClient({
                 ))}
               </tbody>
             </table>
-          </div>
+            </div>
+          </>
         )}
       </section>
     </AdminShell>
