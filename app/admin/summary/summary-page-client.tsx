@@ -190,94 +190,90 @@ export function SummaryPageClient({
     >
       <Toaster toasts={toasts} dismiss={dismissToast} />
 
-      <section className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <article className="glass-card border border-slate-200 p-4">
-          <p className="text-xs uppercase tracking-wider text-slate-500">Closed Weeks</p>
-          <p className="mt-2 text-2xl font-semibold text-slate-900">
+      <section className="mb-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <article className="metric-tile px-5 py-5">
+          <p className="label-kicker">Closed Weeks</p>
+          <p className="font-display mt-3 text-3xl font-semibold text-slate-950">
             {summary.closedWeekCount}
           </p>
         </article>
-        <article className="glass-card border border-slate-200 p-4">
-          <p className="text-xs uppercase tracking-wider text-slate-500">Total Packages</p>
-          <p className="mt-2 text-2xl font-semibold text-slate-900">
+        <article className="metric-tile px-5 py-5">
+          <p className="label-kicker">Total Packages</p>
+          <p className="font-display mt-3 text-3xl font-semibold text-slate-950">
             {summary.totalPackages}
           </p>
         </article>
-        <article className="glass-card border border-slate-200 p-4">
-          <p className="text-xs uppercase tracking-wider text-slate-500">Total Weight</p>
-          <p className="mt-2 text-2xl font-semibold text-slate-900">
+        <article className="metric-tile px-5 py-5">
+          <p className="label-kicker">Total Weight</p>
+          <p className="font-display mt-3 text-3xl font-semibold text-slate-950">
             {summary.totalWeight.toFixed(2)} kg
           </p>
         </article>
-        <article className="glass-card border border-slate-200 p-4">
-          <p className="text-xs uppercase tracking-wider text-slate-500">Total Revenue</p>
-          <p className="mt-2 text-2xl font-semibold text-slate-900">
+        <article className="metric-tile px-5 py-5">
+          <p className="label-kicker">Total Revenue</p>
+          <p className="font-display mt-3 text-3xl font-semibold text-slate-950">
             GHS {summary.totalRevenue.toFixed(2)}
           </p>
         </article>
       </section>
 
-      <section className="mb-4 grid gap-4 lg:grid-cols-2">
-        <article className="glass-card overflow-hidden border border-slate-200">
-          <div className="border-b border-slate-200 px-4 py-3">
-            <h3 className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-500">
-              Package Type Breakdown
-            </h3>
+      <section className="mb-5 grid gap-5 lg:grid-cols-2">
+        <article className="glass-card overflow-hidden">
+          <div className="border-b border-slate-200/70 px-5 py-4">
+            <p className="label-kicker">Package Type Breakdown</p>
           </div>
-          <div className="grid gap-3 p-4 md:grid-cols-3">
-            <div className="rounded-xl border border-slate-200 bg-white/90 p-3">
-              <p className="text-xs uppercase tracking-wider text-slate-500">Wash Only</p>
-              <p className="mt-1 text-lg font-semibold text-slate-900">
+          <div className="grid gap-4 p-5 md:grid-cols-3">
+            <div className="metric-tile p-4">
+              <p className="label-kicker">Wash Only</p>
+              <p className="font-display mt-2 text-2xl font-semibold text-slate-950">
                 {packageTypeSummary.wash_only_count}
               </p>
             </div>
-            <div className="rounded-xl border border-slate-200 bg-white/90 p-3">
-              <p className="text-xs uppercase tracking-wider text-slate-500">
+            <div className="metric-tile p-4">
+              <p className="label-kicker">
                 Normal Wash & Dry
               </p>
-              <p className="mt-1 text-lg font-semibold text-slate-900">
+              <p className="font-display mt-2 text-2xl font-semibold text-slate-950">
                 {packageTypeSummary.normal_wash_dry_count}
               </p>
             </div>
-            <div className="rounded-xl border border-slate-200 bg-white/90 p-3">
-              <p className="text-xs uppercase tracking-wider text-slate-500">
+            <div className="metric-tile p-4">
+              <p className="label-kicker">
                 Express Wash & Dry
               </p>
-              <p className="mt-1 text-lg font-semibold text-slate-900">
+              <p className="font-display mt-2 text-2xl font-semibold text-slate-950">
                 {packageTypeSummary.express_wash_dry_count}
               </p>
             </div>
           </div>
         </article>
 
-        <article className="glass-card overflow-hidden border border-slate-200">
-          <div className="border-b border-slate-200 px-4 py-3">
-            <h3 className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-500">
-              Express Split
-            </h3>
+        <article className="glass-card overflow-hidden">
+          <div className="border-b border-slate-200/70 px-5 py-4">
+            <p className="label-kicker">Express Split</p>
           </div>
-          <div className="grid gap-3 p-4 md:grid-cols-2">
-            <div className="rounded-xl border border-slate-200 bg-white/90 p-3">
-              <p className="text-xs uppercase tracking-wider text-slate-500">Express Packages</p>
-              <p className="mt-1 text-lg font-semibold text-slate-900">
+          <div className="grid gap-4 p-5 md:grid-cols-2">
+            <div className="metric-tile p-4">
+              <p className="label-kicker">Express Packages</p>
+              <p className="font-display mt-2 text-2xl font-semibold text-slate-950">
                 {expressBusinessSummary.express_package_count}
               </p>
             </div>
-            <div className="rounded-xl border border-slate-200 bg-white/90 p-3">
-              <p className="text-xs uppercase tracking-wider text-slate-500">Express Weight</p>
-              <p className="mt-1 text-lg font-semibold text-slate-900">
+            <div className="metric-tile p-4">
+              <p className="label-kicker">Express Weight</p>
+              <p className="font-display mt-2 text-2xl font-semibold text-slate-950">
                 {expressBusinessSummary.express_total_weight_kg.toFixed(2)} kg
               </p>
             </div>
-            <div className="rounded-xl border border-slate-200 bg-white/90 p-3">
-              <p className="text-xs uppercase tracking-wider text-slate-500">Your Share</p>
-              <p className="mt-1 text-lg font-semibold text-slate-900">
+            <div className="metric-tile p-4">
+              <p className="label-kicker">Your Share</p>
+              <p className="font-display mt-2 text-2xl font-semibold text-slate-950">
                 GHS {expressBusinessSummary.your_express_share_ghs.toFixed(2)}
               </p>
             </div>
-            <div className="rounded-xl border border-slate-200 bg-white/90 p-3">
-              <p className="text-xs uppercase tracking-wider text-slate-500">Partner Share</p>
-              <p className="mt-1 text-lg font-semibold text-slate-900">
+            <div className="metric-tile p-4">
+              <p className="label-kicker">Partner Share</p>
+              <p className="font-display mt-2 text-2xl font-semibold text-slate-950">
                 GHS {expressBusinessSummary.partner_express_share_ghs.toFixed(2)}
               </p>
             </div>
@@ -285,43 +281,41 @@ export function SummaryPageClient({
         </article>
       </section>
 
-      <section className="mb-4 glass-card overflow-hidden border border-slate-200">
-        <div className="border-b border-slate-200 px-4 py-3">
-          <h3 className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-500">
-            Worker Payout Tracker
-          </h3>
+      <section className="mb-5 glass-card overflow-hidden">
+        <div className="border-b border-slate-200/70 px-5 py-4">
+          <p className="label-kicker">Worker Payout Tracker</p>
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[860px] text-sm">
+        <div className="table-wrap">
+          <table className="data-table min-w-[860px]">
             <thead>
-              <tr className="border-b border-slate-200 bg-slate-50/80 text-left text-xs uppercase tracking-wider text-slate-500">
-                <th className="px-3 py-3">Worker</th>
-                <th className="px-3 py-3">Washing</th>
-                <th className="px-3 py-3">Drying Downstairs</th>
-                <th className="px-3 py-3">Removed From Line</th>
-                <th className="px-3 py-3">Dryer Operation</th>
-                <th className="px-3 py-3">Your Side</th>
-                <th className="px-3 py-3">Partner Side</th>
-                <th className="px-3 py-3">Grand Total</th>
+              <tr className="text-left">
+                <th>Worker</th>
+                <th>Washing</th>
+                <th>Drying Downstairs</th>
+                <th>Removed From Line</th>
+                <th>Dryer Operation</th>
+                <th>Your Side</th>
+                <th>Partner Side</th>
+                <th>Grand Total</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-200">
+            <tbody>
               {workerPayoutSummaries.map((summary) => (
-                <tr key={summary.worker_name} className="hover:bg-slate-50/60">
-                  <td className="px-3 py-3 font-medium text-slate-900">
+                <tr key={summary.worker_name}>
+                  <td className="font-medium text-slate-900">
                     {getWorkerLabel(summary.worker_name)}
                   </td>
-                  <td className="px-3 py-3">{summary.washing_count}</td>
-                  <td className="px-3 py-3">{summary.drying_downstairs_count}</td>
-                  <td className="px-3 py-3">{summary.removed_from_line_count}</td>
-                  <td className="px-3 py-3">{summary.dryer_operation_count}</td>
-                  <td className="px-3 py-3">
+                  <td>{summary.washing_count}</td>
+                  <td>{summary.drying_downstairs_count}</td>
+                  <td>{summary.removed_from_line_count}</td>
+                  <td>{summary.dryer_operation_count}</td>
+                  <td>
                     GHS {summary.your_side_total_ghs.toFixed(2)}
                   </td>
-                  <td className="px-3 py-3">
+                  <td>
                     GHS {summary.partner_side_total_ghs.toFixed(2)}
                   </td>
-                  <td className="px-3 py-3 font-semibold text-slate-900">
+                  <td className="font-semibold text-slate-900">
                     GHS {summary.grand_total_ghs.toFixed(2)}
                   </td>
                 </tr>
@@ -331,36 +325,34 @@ export function SummaryPageClient({
         </div>
       </section>
 
-      <section className="mb-4 grid gap-4 lg:grid-cols-2">
-        <article className="glass-card overflow-hidden border border-slate-200">
-          <div className="border-b border-slate-200 px-4 py-3">
-            <h3 className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-500">
-              Active Week Snapshot
-            </h3>
+      <section className="mb-5 grid gap-5 lg:grid-cols-2">
+        <article className="glass-card overflow-hidden">
+          <div className="border-b border-slate-200/70 px-5 py-4">
+            <p className="label-kicker">Active Week Snapshot</p>
           </div>
-          <div className="space-y-3 p-4">
-            <div className="rounded-xl border border-slate-200 bg-white/90 p-3">
-              <p className="text-xs uppercase tracking-wider text-slate-500">Active Week</p>
-              <p className="mt-1 font-semibold text-slate-900">
+          <div className="space-y-4 p-5">
+            <div className="metric-tile p-4">
+              <p className="label-kicker">Active Week</p>
+              <p className="mt-2 text-lg font-semibold text-slate-950">
                 {currentWeek?.label ?? "No active week"}
               </p>
             </div>
-            <div className="grid gap-3 md:grid-cols-3">
-              <div className="rounded-xl border border-slate-200 bg-white/90 p-3">
-                <p className="text-xs uppercase tracking-wider text-slate-500">Packages</p>
-                <p className="mt-1 text-lg font-semibold text-slate-900">
+            <div className="grid gap-4 md:grid-cols-3">
+              <div className="metric-tile p-4">
+                <p className="label-kicker">Packages</p>
+                <p className="font-display mt-2 text-2xl font-semibold text-slate-950">
                   {summary.activePackageCount}
                 </p>
               </div>
-              <div className="rounded-xl border border-slate-200 bg-white/90 p-3">
-                <p className="text-xs uppercase tracking-wider text-slate-500">Weight</p>
-                <p className="mt-1 text-lg font-semibold text-slate-900">
+              <div className="metric-tile p-4">
+                <p className="label-kicker">Weight</p>
+                <p className="font-display mt-2 text-2xl font-semibold text-slate-950">
                   {summary.activeWeight.toFixed(2)} kg
                 </p>
               </div>
-              <div className="rounded-xl border border-slate-200 bg-white/90 p-3">
-                <p className="text-xs uppercase tracking-wider text-slate-500">Revenue</p>
-                <p className="mt-1 text-lg font-semibold text-slate-900">
+              <div className="metric-tile p-4">
+                <p className="label-kicker">Revenue</p>
+                <p className="font-display mt-2 text-2xl font-semibold text-slate-950">
                   GHS {summary.activeRevenue.toFixed(2)}
                 </p>
               </div>
@@ -376,14 +368,12 @@ export function SummaryPageClient({
           </div>
         </article>
 
-        <article className="glass-card overflow-hidden border border-slate-200">
-          <div className="border-b border-slate-200 px-4 py-3">
-            <h3 className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-500">
-              Export Reports
-            </h3>
+        <article className="glass-card overflow-hidden">
+          <div className="border-b border-slate-200/70 px-5 py-4">
+            <p className="label-kicker">Export Reports</p>
           </div>
           {closedWeeks.length === 0 ? (
-            <p className="p-4 text-sm text-slate-500">
+            <p className="p-5 text-sm leading-6 text-slate-500">
               No closed weeks yet. Exports become available after a week is closed.
             </p>
           ) : (
@@ -391,14 +381,14 @@ export function SummaryPageClient({
               {closedWeeks.map((week) => (
                 <article
                   key={week.id}
-                  className="flex flex-col gap-3 p-4 md:flex-row md:items-center md:justify-between"
+                  className="flex flex-col gap-4 p-5 md:flex-row md:items-center md:justify-between"
                 >
                   <div>
-                    <p className="font-semibold text-slate-900">{week.label}</p>
-                    <p className="mt-1 text-xs text-slate-500">
+                    <p className="font-display text-xl font-semibold text-slate-950">{week.label}</p>
+                    <p className="mt-2 text-sm leading-6 text-slate-500">
                       {formatAccraDateTime(week.start_at)} - {formatAccraDateTime(week.end_at)}
                     </p>
-                    <p className="mt-1 text-xs text-slate-500">
+                    <p className="mt-1 text-sm leading-6 text-slate-500">
                       {week.package_count ?? 0} packages |{" "}
                       {week.total_weight_kg?.toFixed(2) ?? "0.00"} kg | GHS{" "}
                       {week.total_price_ghs?.toFixed(2) ?? "0.00"}
@@ -425,43 +415,41 @@ export function SummaryPageClient({
         </article>
       </section>
 
-      <section className="glass-card overflow-hidden border border-slate-200">
-        <div className="border-b border-slate-200 px-4 py-3">
-          <h3 className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-500">
-            Week Totals Table
-          </h3>
+      <section className="glass-card overflow-hidden">
+        <div className="border-b border-slate-200/70 px-5 py-4">
+          <p className="label-kicker">Week Totals Table</p>
         </div>
         {weeks.length === 0 ? (
-          <p className="p-4 text-sm text-slate-500">No weekly totals available yet.</p>
+          <p className="p-5 text-sm leading-6 text-slate-500">No weekly totals available yet.</p>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[760px] text-sm">
+          <div className="table-wrap">
+            <table className="data-table min-w-[760px]">
               <thead>
-                <tr className="border-b border-slate-200 bg-slate-50/80 text-left text-xs uppercase tracking-wider text-slate-500">
-                  <th className="px-3 py-3">Week</th>
-                  <th className="px-3 py-3">Status</th>
-                  <th className="px-3 py-3">Packages</th>
-                  <th className="px-3 py-3">Weight</th>
-                  <th className="px-3 py-3">Revenue</th>
+                <tr className="text-left">
+                  <th>Week</th>
+                  <th>Status</th>
+                  <th>Packages</th>
+                  <th>Weight</th>
+                  <th>Revenue</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-200">
+              <tbody>
                 {weeks.map((week) => (
-                  <tr key={week.id} className="hover:bg-slate-50/60">
-                    <td className="px-3 py-3">
+                  <tr key={week.id}>
+                    <td>
                       <p className="font-medium text-slate-900">{week.label}</p>
-                      <p className="text-xs text-slate-500">
+                      <p className="text-sm leading-6 text-slate-500">
                         {formatAccraDateTime(week.start_at)} - {formatAccraDateTime(week.end_at)}
                       </p>
                     </td>
-                    <td className="px-3 py-3">
+                    <td>
                       <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium">
                         {week.status}
                       </span>
                     </td>
-                    <td className="px-3 py-3">{week.package_count ?? 0}</td>
-                    <td className="px-3 py-3">{week.total_weight_kg?.toFixed(2) ?? "0.00"} kg</td>
-                    <td className="px-3 py-3">GHS {week.total_price_ghs?.toFixed(2) ?? "0.00"}</td>
+                    <td>{week.package_count ?? 0}</td>
+                    <td>{week.total_weight_kg?.toFixed(2) ?? "0.00"} kg</td>
+                    <td>GHS {week.total_price_ghs?.toFixed(2) ?? "0.00"}</td>
                   </tr>
                 ))}
               </tbody>

@@ -28,11 +28,18 @@ interface CurrentWeekCacheEntry {
   week: ProcessingWeek | null;
 }
 
+interface WeeksListCacheEntry {
+  cachedAt: string;
+  weeks: ProcessingWeekWithReport[];
+}
+
 declare global {
   var __currentProcessingWeekCache: CurrentWeekCacheEntry | undefined;
+  var __processingWeeksListCache: WeeksListCacheEntry | undefined;
 }
 
 const CURRENT_WEEK_CACHE_TTL_MS = 15000;
+const WEEKS_LIST_CACHE_TTL_MS = 15000;
 
 function toNumber(value: unknown): number {
   const num = Number(value ?? 0);
@@ -93,8 +100,23 @@ function setCachedCurrentWeek(week: ProcessingWeek | null) {
   };
 }
 
+function getCachedProcessingWeeksList(): WeeksListCacheEntry | null {
+  return globalThis.__processingWeeksListCache ?? null;
+}
+
+function setCachedProcessingWeeksList(weeks: ProcessingWeekWithReport[]) {
+  globalThis.__processingWeeksListCache = {
+    cachedAt: new Date().toISOString(),
+    weeks,
+  };
+}
+
 export function invalidateCurrentProcessingWeekCache() {
   globalThis.__currentProcessingWeekCache = undefined;
+}
+
+export function invalidateProcessingWeeksListCache() {
+  globalThis.__processingWeeksListCache = undefined;
 }
 
 export async function getCurrentProcessingWeek(): Promise<ProcessingWeek | null> {
@@ -137,30 +159,54 @@ export async function getCurrentProcessingWeek(): Promise<ProcessingWeek | null>
 }
 
 export async function listProcessingWeeks(): Promise<ProcessingWeekWithReport[]> {
-  const rows = await withDbConnectionRetry(async () => {
-    const sql = getDb();
-    return sql`
-      select
-        w.id,
-        w.label,
-        w.start_at,
-        w.end_at,
-        w.status,
-        w.closed_at,
-        w.closed_by,
-        w.created_at,
-        r.package_count,
-        r.total_clothes_count,
-        r.total_weight_kg,
-        r.total_price_ghs,
-        r.generated_at
-      from processing_weeks w
-      left join week_reports r on r.week_id = w.id
-      order by w.start_at desc
-    `;
-  });
+  const cached = getCachedProcessingWeeksList();
+  const now = Date.now();
 
-  return rows.map((row) => mapWeekWithReport(row as Record<string, unknown>));
+  if (
+    cached &&
+    now - new Date(cached.cachedAt).getTime() <= WEEKS_LIST_CACHE_TTL_MS
+  ) {
+    return cached.weeks;
+  }
+
+  try {
+    const rows = await withDbConnectionRetry(async () => {
+      const sql = getDb();
+      return sql`
+        select
+          w.id,
+          w.label,
+          w.start_at,
+          w.end_at,
+          w.status,
+          w.closed_at,
+          w.closed_by,
+          w.created_at,
+          r.package_count,
+          r.total_clothes_count,
+          r.total_weight_kg,
+          r.total_price_ghs,
+          r.generated_at
+        from processing_weeks w
+        left join week_reports r on r.week_id = w.id
+        order by w.start_at desc
+      `;
+    });
+
+    const weeks = rows.map((row) => mapWeekWithReport(row as Record<string, unknown>));
+    setCachedProcessingWeeksList(weeks);
+    return weeks;
+  } catch (error) {
+    if (cached) {
+      console.warn("[weeks] serving stale weeks list after load failure", {
+        cachedAt: cached.cachedAt,
+        message: error instanceof Error ? error.message : "Unknown error",
+      });
+      return cached.weeks;
+    }
+
+    throw error;
+  }
 }
 
 export async function startProcessingWeek(
@@ -202,6 +248,7 @@ export async function startProcessingWeek(
 
     const week = mapWeek(created);
     invalidateCurrentProcessingWeekCache();
+    invalidateProcessingWeeksListCache();
     return week;
   } catch (error) {
     if (error instanceof AppError) {
@@ -422,6 +469,7 @@ export async function closeProcessingWeek(
     `;
 
     invalidateCurrentProcessingWeekCache();
+    invalidateProcessingWeeksListCache();
 
     return {
       closedWeek: mapWeek(closedRows[0] as Record<string, unknown>),

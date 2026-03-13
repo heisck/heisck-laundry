@@ -19,13 +19,10 @@ interface WeeksPageClientProps {
 
 type BusyAction = null | "refresh" | "startWeek" | "closeWeek";
 
-interface CurrentWeekPayload {
+interface WeeksBootstrapPayload {
   week: ProcessingWeek | null;
-  remainingSeconds: number;
-}
-
-interface WeeksPayload {
   weeks: ProcessingWeekWithReport[];
+  remainingSeconds: number;
 }
 
 function SkeletonWeeksPage({ userEmail }: { userEmail: string }) {
@@ -78,15 +75,12 @@ export function WeeksPageClient({
   }, [currentWeek]);
 
   async function loadWeeksAndCurrent() {
-    const [currentResponse, weeksResponse] = await Promise.all([
-      fetchWithTimeout("/api/admin/weeks/current", { cache: "no-store" }),
-      fetchWithTimeout("/api/admin/weeks", { cache: "no-store" }),
-    ]);
-
-    const currentPayload = await parseApiResponse<CurrentWeekPayload>(currentResponse);
-    const weeksPayload = await parseApiResponse<WeeksPayload>(weeksResponse);
-    setCurrentWeek(currentPayload.week);
-    setWeeks(weeksPayload.weeks);
+    const response = await fetchWithTimeout("/api/admin/weeks/bootstrap", {
+      cache: "no-store",
+    });
+    const payload = await parseApiResponse<WeeksBootstrapPayload>(response);
+    setCurrentWeek(payload.week);
+    setWeeks(payload.weeks);
   }
 
   async function refreshAll(showLoader = false) {
@@ -187,35 +181,33 @@ export function WeeksPageClient({
     >
       <Toaster toasts={toasts} dismiss={dismissToast} />
 
-      <section className="mb-4 grid gap-4 lg:grid-cols-2">
-        <article className="glass-card overflow-hidden border border-slate-200">
-          <div className="border-b border-slate-200 px-4 py-3">
-            <h3 className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-500">
-              Active Week Control
-            </h3>
+      <section className="mb-5 grid gap-5 lg:grid-cols-2">
+        <article className="glass-card overflow-hidden">
+          <div className="border-b border-slate-200/70 px-5 py-4">
+            <p className="label-kicker">Active Week Control</p>
           </div>
-          <div className="space-y-3 p-4">
-            <div className="rounded-xl border border-slate-200 bg-white/90 p-3">
-              <p className="text-xs uppercase tracking-wider text-slate-500">Week Label</p>
-              <p className="mt-1 font-semibold text-slate-900">
+          <div className="space-y-4 p-5">
+            <div className="metric-tile p-4">
+              <p className="label-kicker">Week Label</p>
+              <p className="mt-2 text-lg font-semibold text-slate-950">
                 {currentWeek?.label ?? "No active week"}
               </p>
             </div>
-            <div className="rounded-xl border border-slate-200 bg-white/90 p-3">
-              <p className="text-xs uppercase tracking-wider text-slate-500">Start</p>
-              <p className="mt-1 font-semibold text-slate-900">
+            <div className="metric-tile p-4">
+              <p className="label-kicker">Start</p>
+              <p className="mt-2 text-lg font-semibold text-slate-950">
                 {currentWeek ? formatAccraDateTime(currentWeek.start_at) : "-"}
               </p>
             </div>
-            <div className="rounded-xl border border-slate-200 bg-white/90 p-3">
-              <p className="text-xs uppercase tracking-wider text-slate-500">End</p>
-              <p className="mt-1 font-semibold text-slate-900">
+            <div className="metric-tile p-4">
+              <p className="label-kicker">End</p>
+              <p className="mt-2 text-lg font-semibold text-slate-950">
                 {currentWeek ? formatAccraDateTime(currentWeek.end_at) : "-"}
               </p>
             </div>
-            <div className="rounded-xl border border-slate-200 bg-white/90 p-3">
-              <p className="text-xs uppercase tracking-wider text-slate-500">Time Left</p>
-              <p className="mt-1 font-semibold text-slate-900">{currentWeekRemaining}</p>
+            <div className="metric-tile p-4">
+              <p className="label-kicker">Time Left</p>
+              <p className="mt-2 text-lg font-semibold text-slate-950">{currentWeekRemaining}</p>
             </div>
             <div className="flex flex-wrap gap-2">
               <button
@@ -238,14 +230,12 @@ export function WeeksPageClient({
           </div>
         </article>
 
-        <article className="glass-card overflow-hidden border border-slate-200">
-          <div className="border-b border-slate-200 px-4 py-3">
-            <h3 className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-500">
-              Start New Week
-            </h3>
+        <article className="glass-card overflow-hidden">
+          <div className="border-b border-slate-200/70 px-5 py-4">
+            <p className="label-kicker">Start New Week</p>
           </div>
-          <form className="space-y-3 p-4" onSubmit={handleStartWeek}>
-            <label className="block text-sm font-medium text-slate-700">
+          <form className="space-y-4 p-5" onSubmit={handleStartWeek}>
+            <label className="block text-sm font-semibold text-slate-700">
               Week label (optional)
             </label>
             <input
@@ -271,24 +261,22 @@ export function WeeksPageClient({
         </article>
       </section>
 
-      <section className="glass-card overflow-hidden border border-slate-200">
-        <div className="border-b border-slate-200 px-4 py-3">
-          <h3 className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-500">
-            Week History
-          </h3>
+      <section className="glass-card overflow-hidden">
+        <div className="border-b border-slate-200/70 px-5 py-4">
+          <p className="label-kicker">Week History</p>
         </div>
         {weeks.length === 0 ? (
-          <p className="p-4 text-sm text-slate-500">No weeks yet.</p>
+          <p className="p-5 text-sm leading-6 text-slate-500">No weeks yet.</p>
         ) : (
           <div className="divide-y divide-slate-200">
             {weeks.map((week) => (
               <article
                 key={week.id}
-                className="flex flex-col gap-3 p-4 md:flex-row md:items-center md:justify-between"
+                className="flex flex-col gap-4 p-5 md:flex-row md:items-center md:justify-between"
               >
                 <div>
-                  <p className="font-semibold text-slate-900">{week.label}</p>
-                  <p className="mt-1 text-xs text-slate-500">
+                  <p className="font-display text-xl font-semibold text-slate-950">{week.label}</p>
+                  <p className="mt-2 text-sm leading-6 text-slate-500">
                     {formatAccraDateTime(week.start_at)} - {formatAccraDateTime(week.end_at)}
                   </p>
                 </div>

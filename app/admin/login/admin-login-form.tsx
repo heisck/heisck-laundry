@@ -36,65 +36,104 @@ export function AdminLoginForm() {
   }
 
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-md items-center px-6">
-      <section className="glass-card w-full p-8">
-        <div className="mb-6 flex items-center gap-3">
-          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-500 to-blue-700 text-sm font-bold text-white shadow-md shadow-blue-500/30">
-            HL
-          </div>
+    <main className="mx-auto flex min-h-screen w-full max-w-[1240px] items-center px-5 py-8 md:px-8">
+      <section className="grid w-full gap-5 lg:grid-cols-[1.1fr_0.9fr]">
+        <article className="panel-hero flex flex-col justify-between gap-8 p-6 md:p-8 lg:p-10">
           <div>
-            <p className="text-xs uppercase tracking-[0.18em] text-slate-500">
-              Heisck Laundry
-            </p>
-            <p className="text-sm font-medium text-slate-700">Admin Portal</p>
-          </div>
-        </div>
-        <h1 className="text-2xl font-semibold text-slate-900">Admin Sign In</h1>
-        <p className="mt-2 text-sm text-slate-600">
-          Sign in to manage laundry packages and weekly reports.
-        </p>
-
-        <form className="mt-6 space-y-4" onSubmit={onSubmit}>
-          <div>
-            <label className="mb-1 block text-sm font-medium text-slate-700">
-              Email
-            </label>
-            <input
-              type="email"
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              required
-              className="input-control"
-            />
+            <p className="label-kicker">Private Operations Portal</p>
+            <div className="mt-4 flex items-center gap-4">
+              <div className="flex h-16 w-16 items-center justify-center rounded-[1.5rem] bg-gradient-to-br from-teal-600 to-sky-700 text-base font-extrabold tracking-[0.24em] text-white shadow-lg shadow-sky-900/15">
+                HL
+              </div>
+              <div>
+                <h1 className="font-display text-3xl font-semibold tracking-tight text-slate-950 md:text-4xl">
+                  Heisck Laundry
+                </h1>
+                <p className="mt-2 max-w-xl text-base leading-7 text-slate-600 md:text-lg">
+                  Secure access for package intake, worker payouts, weekly closing, and customer updates.
+                </p>
+              </div>
+            </div>
           </div>
 
-          <div>
-            <label className="mb-1 block text-sm font-medium text-slate-700">
-              Password
-            </label>
-            <input
-              type="password"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              required
-              className="input-control"
-            />
+          <div className="grid gap-4 md:grid-cols-3">
+            <article className="metric-tile px-4 py-4">
+              <p className="label-kicker">Clarity</p>
+              <p className="mt-2 text-lg font-semibold text-slate-950">Readable workflow</p>
+              <p className="mt-1 text-sm leading-6 text-slate-600">
+                Faster package creation and simpler status changes.
+              </p>
+            </article>
+            <article className="metric-tile px-4 py-4">
+              <p className="label-kicker">Security</p>
+              <p className="mt-2 text-lg font-semibold text-slate-950">Protected access</p>
+              <p className="mt-1 text-sm leading-6 text-slate-600">
+                Admin pages stay behind Supabase authentication.
+              </p>
+            </article>
+            <article className="metric-tile px-4 py-4">
+              <p className="label-kicker">Speed</p>
+              <p className="mt-2 text-lg font-semibold text-slate-950">Lighter interface</p>
+              <p className="mt-1 text-sm leading-6 text-slate-600">
+                Less visual clutter and faster page load behavior.
+              </p>
+            </article>
           </div>
+        </article>
 
-          {error ? (
-            <p className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
-              {error}
-            </p>
-          ) : null}
+        <article className="glass-card p-6 md:p-8">
+          <p className="label-kicker">Admin Sign In</p>
+          <h2 className="font-display mt-3 text-3xl font-semibold tracking-tight text-slate-950">
+            Continue to the dashboard
+          </h2>
+          <p className="mt-3 text-base leading-7 text-slate-600">
+            Use your verified admin credentials to access the laundry control area.
+          </p>
 
-          <button
-            type="submit"
-            disabled={loading}
-            className="btn btn-primary w-full"
-          >
-            {loading ? "Signing in..." : "Sign In"}
-          </button>
-        </form>
+          <form className="mt-8 space-y-5" onSubmit={onSubmit}>
+            <div>
+              <label className="mb-2 block text-sm font-semibold text-slate-700">
+                Email address
+              </label>
+              <input
+                type="email"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                required
+                className="input-control"
+                autoComplete="email"
+              />
+            </div>
+
+            <div>
+              <label className="mb-2 block text-sm font-semibold text-slate-700">
+                Password
+              </label>
+              <input
+                type="password"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                required
+                className="input-control"
+                autoComplete="current-password"
+              />
+            </div>
+
+            {error ? (
+              <p className="rounded-[1rem] border border-rose-200 bg-rose-50 px-4 py-3 text-sm leading-6 text-rose-700">
+                {error}
+              </p>
+            ) : null}
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="btn btn-primary w-full"
+            >
+              {loading ? "Signing in..." : "Sign In"}
+            </button>
+          </form>
+        </article>
       </section>
     </main>
   );

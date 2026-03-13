@@ -80,6 +80,15 @@ interface PackagesBootstrapPayload {
   cachedAt: string | null;
 }
 
+interface StatusDialogState {
+  packageId: string;
+  orderId: string;
+  packageType: PackageType;
+  currentStatus: PackageStatus;
+  nextStatus: PackageStatus;
+  workerName: LaundryWorker;
+}
+
 type BusyAction =
   | null
   | "refresh"
@@ -93,6 +102,8 @@ type PendingStatusUpdate = {
 } | null;
 type StatusDrafts = Record<string, PackageStatus>;
 type WorkerDrafts = Record<string, LaundryWorker>;
+
+const PACKAGES_BOOTSTRAP_STORAGE_KEY = "heisck.admin.packages.bootstrap";
 
 const STATUS_ORDER: Record<PackageStatus, number> = {
   RECEIVED: 0,
@@ -153,6 +164,43 @@ function canRetrySms(deliveryState: string | null): boolean {
   return deliveryState === "FAILED";
 }
 
+function readLocalBootstrapCache(): PackagesBootstrapPayload | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  try {
+    const raw = window.localStorage.getItem(PACKAGES_BOOTSTRAP_STORAGE_KEY);
+    if (!raw) {
+      return null;
+    }
+
+    const parsed = JSON.parse(raw) as PackagesBootstrapPayload;
+    if (!parsed || !Array.isArray(parsed.packages) || !("week" in parsed)) {
+      return null;
+    }
+
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function writeLocalBootstrapCache(payload: PackagesBootstrapPayload) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(
+      PACKAGES_BOOTSTRAP_STORAGE_KEY,
+      JSON.stringify(payload),
+    );
+  } catch {
+    // Best effort only.
+  }
+}
+
 function SkeletonPackagesPage({ userEmail }: { userEmail: string }) {
   return (
     <AdminShell
@@ -208,6 +256,7 @@ export function PackagesPageClient({
   >(null);
   const [statusDrafts, setStatusDrafts] = useState<StatusDrafts>({});
   const [workerDrafts, setWorkerDrafts] = useState<WorkerDrafts>({});
+  const [statusDialog, setStatusDialog] = useState<StatusDialogState | null>(null);
   const initRef = useRef(false);
 
   const isBusy = busyAction !== null;
@@ -262,13 +311,33 @@ export function PackagesPageClient({
     return calculatePackagePricing(weightKg, createForm.packageType);
   }, [createForm.packageType, createForm.totalWeightKg]);
 
+  const statusDialogTask = useMemo(() => {
+    if (!statusDialog) {
+      return null;
+    }
+
+    return getPayableTaskForStatus(
+      statusDialog.packageType,
+      statusDialog.nextStatus,
+    );
+  }, [statusDialog]);
+
+  function showLoadingToast(title: string, message: string): number {
+    return pushToast("loading", title, message, { persist: true });
+  }
+
   async function loadBootstrap() {
-    const response = await fetchWithTimeout("/api/admin/packages/bootstrap", {
-      cache: "no-store",
-    });
+    const response = await fetchWithTimeout(
+      "/api/admin/packages/bootstrap",
+      {
+        cache: "no-store",
+      },
+      8000,
+    );
     const payload = await parseApiResponse<PackagesBootstrapPayload>(response);
     setCurrentWeek(payload.week);
     setAllPackages(payload.packages);
+    writeLocalBootstrapCache(payload);
 
     if (payload.stale) {
       pushToast(
@@ -286,15 +355,31 @@ export function PackagesPageClient({
       setLoading(true);
     }
     setBusyAction("refresh");
+    const loadingToastId = showLoadingToast(
+      "Refreshing packages",
+      "Loading the latest package and week data.",
+    );
     try {
       await loadBootstrap();
     } catch (error) {
-      pushToast(
-        "error",
-        "Unable to refresh packages",
-        error instanceof Error ? error.message : "Unknown error",
-      );
+      const cached = readLocalBootstrapCache();
+      if (cached) {
+        setCurrentWeek(cached.week);
+        setAllPackages(cached.packages);
+        pushToast(
+          "warning",
+          "Showing saved package data",
+          "Live refresh failed, so the last browser cache is still on screen.",
+        );
+      } else {
+        pushToast(
+          "error",
+          "Unable to refresh packages",
+          error instanceof Error ? error.message : "Unknown error",
+        );
+      }
     } finally {
+      dismissToast(loadingToastId);
       setBusyAction(null);
       if (showLoader) {
         setLoading(false);
@@ -313,6 +398,20 @@ export function PackagesPageClient({
     }
 
     if (!initialLoadReady) {
+      const cached = readLocalBootstrapCache();
+      if (cached) {
+        setCurrentWeek(cached.week);
+        setAllPackages(cached.packages);
+        setLoading(false);
+        pushToast(
+          "info",
+          "Loaded saved package data",
+          "Refreshing live data in the background.",
+        );
+        void refreshAll(false);
+        return;
+      }
+
       void refreshAll(true);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -321,22 +420,30 @@ export function PackagesPageClient({
   async function handleCreatePackage(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setBusyAction("createPackage");
+    const loadingToastId = showLoadingToast(
+      "Creating package",
+      "Saving the package and preparing customer tracking.",
+    );
 
     try {
-      const response = await fetchWithTimeout("/api/admin/packages", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          customerName: createForm.customerName,
-          roomNumber: createForm.roomNumber,
-          packageType: createForm.packageType,
-          clothesCount: createForm.clothesCount,
-          totalWeightKg: createForm.totalWeightKg,
-          primaryPhone: createForm.primaryPhone,
-          secondaryPhone: createForm.secondaryPhone || undefined,
-          etaAt: new Date(createForm.etaAt).toISOString(),
-        }),
-      });
+      const response = await fetchWithTimeout(
+        "/api/admin/packages",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            customerName: createForm.customerName,
+            roomNumber: createForm.roomNumber,
+            packageType: createForm.packageType,
+            clothesCount: createForm.clothesCount,
+            totalWeightKg: createForm.totalWeightKg,
+            primaryPhone: createForm.primaryPhone,
+            secondaryPhone: createForm.secondaryPhone || undefined,
+            etaAt: new Date(createForm.etaAt).toISOString(),
+          }),
+        },
+        30000,
+      );
 
       const payload = await parseApiResponse<{
         package: PackageRecord;
@@ -385,6 +492,7 @@ export function PackagesPageClient({
         error instanceof Error ? error.message : "Unknown error",
       );
     } finally {
+      dismissToast(loadingToastId);
       setBusyAction(null);
     }
   }
@@ -401,19 +509,57 @@ export function PackagesPageClient({
     return workerDrafts[packageId] ?? "NOBODY";
   }
 
+  function handleOpenStatusDialog(pkg: PackageRecord) {
+    const nextStatus = getSelectedStatus(pkg);
+    if (nextStatus === pkg.status) {
+      return;
+    }
+
+    setStatusDialog({
+      packageId: pkg.id,
+      orderId: pkg.order_id,
+      packageType: pkg.package_type,
+      currentStatus: pkg.status,
+      nextStatus,
+      workerName: getSelectedWorker(pkg.id),
+    });
+  }
+
+  async function handleConfirmStatusDialog() {
+    if (!statusDialog) {
+      return;
+    }
+
+    await handleStatusChange(
+      statusDialog.packageId,
+      statusDialog.orderId,
+      statusDialog.nextStatus,
+      statusDialog.workerName,
+    );
+  }
+
   async function handleStatusChange(
     packageId: string,
+    orderId: string,
     nextStatus: PackageStatus,
     workerName: LaundryWorker,
   ) {
     setBusyAction("updateStatus");
     setPendingStatusUpdate({ packageId, nextStatus });
+    const loadingToastId = showLoadingToast(
+      "Updating status",
+      `${orderId} is being moved to ${getStatusLabel(nextStatus)}.`,
+    );
     try {
-      const response = await fetchWithTimeout(`/api/admin/packages/${packageId}/status`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: nextStatus, workerName }),
-      });
+      const response = await fetchWithTimeout(
+        `/api/admin/packages/${packageId}/status`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status: nextStatus, workerName }),
+        },
+        30000,
+      );
       const payload = await parseApiResponse<{
         package: PackageRecord;
         skipped: boolean;
@@ -434,6 +580,7 @@ export function PackagesPageClient({
         ...prev,
         [packageId]: "NOBODY",
       }));
+      setStatusDialog(null);
 
       pushToast(
         "success",
@@ -466,6 +613,7 @@ export function PackagesPageClient({
         error instanceof Error ? error.message : "Unknown error",
       );
     } finally {
+      dismissToast(loadingToastId);
       setPendingStatusUpdate(null);
       setBusyAction(null);
     }
@@ -492,12 +640,20 @@ export function PackagesPageClient({
   async function handleRetrySms(packageId: string) {
     setBusyAction("retrySms");
     setPendingSmsRetryPackageId(packageId);
+    const targetPackage = allPackages.find((item) => item.id === packageId);
+    const loadingToastId = showLoadingToast(
+      "Retrying SMS",
+      targetPackage
+        ? `Trying the latest failed SMS again for ${targetPackage.order_id}.`
+        : "Trying the latest failed SMS again.",
+    );
     try {
       const response = await fetchWithTimeout(
         `/api/admin/packages/${packageId}/notifications`,
         {
           method: "POST",
         },
+        25000,
       );
       const payload = await parseApiResponse<{
         package: PackageRecord;
@@ -528,6 +684,7 @@ export function PackagesPageClient({
         error instanceof Error ? error.message : "Unknown error",
       );
     } finally {
+      dismissToast(loadingToastId);
       setPendingSmsRetryPackageId(null);
       setBusyAction(null);
     }
@@ -545,67 +702,63 @@ export function PackagesPageClient({
     >
       <Toaster toasts={toasts} dismiss={dismissToast} />
 
-      <section className="glass-card mb-4 overflow-hidden border border-slate-200">
-        <div className="border-b border-slate-200 px-4 py-3">
-          <h3 className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-500">
-            Current Processing Week
-          </h3>
+      <section className="glass-card mb-5 overflow-hidden">
+        <div className="border-b border-slate-200/70 px-5 py-4">
+          <p className="label-kicker">Current Processing Week</p>
         </div>
-        <div className="grid gap-3 p-4 md:grid-cols-3">
-          <div className="rounded-xl border border-slate-200 bg-white/90 px-3 py-3">
-            <p className="text-xs uppercase tracking-wider text-slate-500">Label</p>
-            <p className="mt-1 font-semibold text-slate-900">
+        <div className="grid gap-4 p-5 md:grid-cols-3">
+          <div className="metric-tile px-4 py-4">
+            <p className="label-kicker">Label</p>
+            <p className="mt-2 text-lg font-semibold text-slate-950">
               {currentWeek?.label ?? "No active week"}
             </p>
           </div>
-          <div className="rounded-xl border border-slate-200 bg-white/90 px-3 py-3">
-            <p className="text-xs uppercase tracking-wider text-slate-500">Week End</p>
-            <p className="mt-1 font-semibold text-slate-900">
+          <div className="metric-tile px-4 py-4">
+            <p className="label-kicker">Week End</p>
+            <p className="mt-2 text-lg font-semibold text-slate-950">
               {currentWeek ? formatAccraDateTime(currentWeek.end_at) : "-"}
             </p>
           </div>
-          <div className="rounded-xl border border-slate-200 bg-white/90 px-3 py-3">
-            <p className="text-xs uppercase tracking-wider text-slate-500">Time Left</p>
-            <p className="mt-1 font-semibold text-slate-900">{currentWeekRemaining}</p>
+          <div className="metric-tile px-4 py-4">
+            <p className="label-kicker">Time Left</p>
+            <p className="mt-2 text-lg font-semibold text-slate-950">{currentWeekRemaining}</p>
           </div>
         </div>
       </section>
 
-      <section className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <article className="glass-card border border-slate-200 p-4">
-          <p className="text-xs uppercase tracking-wider text-slate-500">Packages</p>
-          <p className="mt-2 text-2xl font-semibold text-slate-900">
+      <section className="mb-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <article className="metric-tile px-5 py-5">
+          <p className="label-kicker">Packages</p>
+          <p className="font-display mt-3 text-3xl font-semibold text-slate-950">
             {displayedMetrics.packageCount}
           </p>
         </article>
-        <article className="glass-card border border-slate-200 p-4">
-          <p className="text-xs uppercase tracking-wider text-slate-500">Total Weight</p>
-          <p className="mt-2 text-2xl font-semibold text-slate-900">
+        <article className="metric-tile px-5 py-5">
+          <p className="label-kicker">Total Weight</p>
+          <p className="font-display mt-3 text-3xl font-semibold text-slate-950">
             {displayedMetrics.totalKg.toFixed(2)} kg
           </p>
         </article>
-        <article className="glass-card border border-slate-200 p-4">
-          <p className="text-xs uppercase tracking-wider text-slate-500">Total Revenue</p>
-          <p className="mt-2 text-2xl font-semibold text-slate-900">
+        <article className="metric-tile px-5 py-5">
+          <p className="label-kicker">Total Revenue</p>
+          <p className="font-display mt-3 text-3xl font-semibold text-slate-950">
             GHS {displayedMetrics.totalRevenue.toFixed(2)}
           </p>
         </article>
-        <article className="glass-card border border-slate-200 p-4">
-          <p className="text-xs uppercase tracking-wider text-slate-500">Ready for Pickup</p>
-          <p className="mt-2 text-2xl font-semibold text-slate-900">
+        <article className="metric-tile px-5 py-5">
+          <p className="label-kicker">Ready for Pickup</p>
+          <p className="font-display mt-3 text-3xl font-semibold text-slate-950">
             {displayedMetrics.readyCount}
           </p>
         </article>
       </section>
 
-      <section className="mb-4 grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
-        <article className="glass-card overflow-hidden border border-slate-200">
-          <div className="border-b border-slate-200 px-4 py-3">
-            <h3 className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-500">
-              Create Package
-            </h3>
+      <section className="mb-5 grid gap-5 lg:grid-cols-[1.2fr_0.8fr]">
+        <article className="glass-card overflow-hidden">
+          <div className="border-b border-slate-200/70 px-5 py-4">
+            <p className="label-kicker">Create Package</p>
           </div>
-          <form className="grid gap-3 p-4 sm:grid-cols-2" onSubmit={handleCreatePackage}>
+          <form className="grid gap-4 p-5 sm:grid-cols-2" onSubmit={handleCreatePackage}>
             <input
               type="text"
               placeholder="Customer name"
@@ -703,40 +856,40 @@ export function PackagesPageClient({
               className="input-control"
             />
 
-            <div className="sm:col-span-2 grid gap-3 rounded-2xl border border-slate-200 bg-slate-50/80 p-4 md:grid-cols-2 xl:grid-cols-5">
-              <div className="rounded-xl border border-slate-200 bg-white px-3 py-3">
-                <p className="text-xs uppercase tracking-wider text-slate-500">
+            <div className="surface-subtle sm:col-span-2 grid gap-3 p-4 md:grid-cols-2 xl:grid-cols-5">
+              <div className="metric-tile px-4 py-4">
+                <p className="label-kicker">
                   Rounded Weight
                 </p>
-                <p className="mt-1 font-semibold text-slate-900">
+                <p className="mt-2 text-base font-semibold text-slate-950">
                   {pricePreview.roundedWeightKg.toFixed(1)} kg
                 </p>
               </div>
-              <div className="rounded-xl border border-slate-200 bg-white px-3 py-3">
-                <p className="text-xs uppercase tracking-wider text-slate-500">
+              <div className="metric-tile px-4 py-4">
+                <p className="label-kicker">
                   Package Rate
                 </p>
-                <p className="mt-1 font-semibold text-slate-900">
+                <p className="mt-2 text-base font-semibold text-slate-950">
                   GHS {pricePreview.ratePerKg.toFixed(2)}/kg
                 </p>
               </div>
-              <div className="rounded-xl border border-slate-200 bg-white px-3 py-3">
-                <p className="text-xs uppercase tracking-wider text-slate-500">
+              <div className="metric-tile px-4 py-4">
+                <p className="label-kicker">
                   Fixed Charge
                 </p>
-                <p className="mt-1 font-semibold text-slate-900">
+                <p className="mt-2 text-base font-semibold text-slate-950">
                   GHS {pricePreview.fixedChargeGhs.toFixed(2)}
                 </p>
               </div>
-              <div className="rounded-xl border border-slate-200 bg-white px-3 py-3">
-                <p className="text-xs uppercase tracking-wider text-slate-500">Total Price</p>
-                <p className="mt-1 font-semibold text-slate-900">
+              <div className="metric-tile px-4 py-4">
+                <p className="label-kicker">Total Price</p>
+                <p className="mt-2 text-base font-semibold text-slate-950">
                   GHS {pricePreview.totalPriceGhs.toFixed(2)}
                 </p>
               </div>
-              <div className="rounded-xl border border-slate-200 bg-white px-3 py-3">
-                <p className="text-xs uppercase tracking-wider text-slate-500">Turnaround</p>
-                <p className="mt-1 font-semibold text-slate-900">
+              <div className="metric-tile px-4 py-4">
+                <p className="label-kicker">Turnaround</p>
+                <p className="mt-2 text-base font-semibold text-slate-950">
                   {getPackageTypeTurnaroundLabel(createForm.packageType)}
                 </p>
               </div>
@@ -767,30 +920,30 @@ export function PackagesPageClient({
           </form>
         </article>
 
-        <article className="glass-card overflow-hidden border border-slate-200">
-          <div className="border-b border-slate-200 px-4 py-3">
-            <h3 className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-500">
-              Latest Created Package
-            </h3>
+        <article className="glass-card overflow-hidden">
+          <div className="border-b border-slate-200/70 px-5 py-4">
+            <p className="label-kicker">Latest Created Package</p>
           </div>
-          <div className="p-4">
+          <div className="p-5">
             {lastCreated ? (
               <div className="space-y-3">
-                <div className="rounded-xl border border-slate-200 bg-white/80 p-3">
-                  <p className="text-xs uppercase tracking-wider text-slate-500">Order ID</p>
-                  <p className="mt-1 text-lg font-semibold text-slate-900">{lastCreated.orderId}</p>
+                <div className="metric-tile p-4">
+                  <p className="label-kicker">Order ID</p>
+                  <p className="font-display mt-2 text-xl font-semibold text-slate-950">
+                    {lastCreated.orderId}
+                  </p>
                 </div>
-                <div className="rounded-xl border border-slate-200 bg-white/80 p-3">
-                  <p className="text-xs uppercase tracking-wider text-slate-500">Tracking Link</p>
+                <div className="metric-tile p-4">
+                  <p className="label-kicker">Tracking Link</p>
                   <Link
                     href={lastCreated.trackingUrl}
                     target="_blank"
-                    className="mt-1 block break-all text-sm text-blue-700 underline"
+                    className="mt-2 block break-all text-sm leading-6 text-sky-700 underline"
                   >
                     {lastCreated.trackingUrl}
                   </Link>
                 </div>
-                <div className="rounded-xl border border-slate-200 bg-white/80 p-3">
+                <div className="metric-tile p-4">
                   <Image
                     src={lastCreated.qrCodeDataUrl}
                     alt="Package tracking QR code"
@@ -809,7 +962,7 @@ export function PackagesPageClient({
                 </button>
               </div>
             ) : (
-              <p className="rounded-xl border border-slate-200 bg-white/80 p-4 text-sm text-slate-500">
+              <p className="metric-tile p-4 text-sm leading-6 text-slate-500">
                 No package has been created in this session yet.
               </p>
             )}
@@ -817,12 +970,15 @@ export function PackagesPageClient({
         </article>
       </section>
 
-      <section className="glass-card overflow-hidden border border-slate-200">
-        <div className="border-b border-slate-200 px-4 py-3">
+      <section className="glass-card overflow-hidden">
+        <div className="border-b border-slate-200/70 px-5 py-4">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-            <h3 className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-500">
-              Package Tracking Table
-            </h3>
+            <div>
+              <p className="label-kicker">Package Tracking Table</p>
+              <p className="mt-2 text-sm leading-6 text-slate-600">
+                Filter locally for faster lookup and cleaner status management.
+              </p>
+            </div>
             <form className="flex flex-col gap-2 sm:flex-row" onSubmit={handleFilterSubmit}>
               <input
                 type="text"
@@ -856,44 +1012,43 @@ export function PackagesPageClient({
           </div>
         </div>
 
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[980px] text-sm">
+        <div className="table-wrap">
+          <table className="data-table min-w-[980px]">
             <thead>
-              <tr className="border-b border-slate-200 bg-slate-50/80 text-left text-xs uppercase tracking-wider text-slate-500">
-                <th className="px-3 py-3 font-semibold">Order</th>
-                <th className="px-3 py-3 font-semibold">Customer</th>
-                <th className="px-3 py-3 font-semibold">Package</th>
-                <th className="px-3 py-3 font-semibold">Room</th>
-                <th className="px-3 py-3 font-semibold">Weight</th>
-                <th className="px-3 py-3 font-semibold">Price</th>
-                <th className="px-3 py-3 font-semibold">Status</th>
-                <th className="px-3 py-3 font-semibold">Update</th>
-                <th className="px-3 py-3 font-semibold">SMS</th>
+              <tr className="text-left">
+                <th className="font-semibold">Order</th>
+                <th className="font-semibold">Customer</th>
+                <th className="font-semibold">Package</th>
+                <th className="font-semibold">Room</th>
+                <th className="font-semibold">Weight</th>
+                <th className="font-semibold">Price</th>
+                <th className="font-semibold">Status</th>
+                <th className="w-[20rem] min-w-[20rem] font-semibold">Update</th>
+                <th className="w-[13rem] min-w-[13rem] font-semibold">SMS</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-200/80">
+            <tbody>
               {visiblePackages.map((pkg) => (
-                <tr key={pkg.id} className="text-slate-700 transition hover:bg-slate-50/60">
-                  <td className="px-3 py-3 font-semibold text-slate-900">{pkg.order_id}</td>
-                  <td className="px-3 py-3">{pkg.customer_name}</td>
-                  <td className="px-3 py-3">{getPackageTypeLabel(pkg.package_type)}</td>
-                  <td className="px-3 py-3">{pkg.room_number}</td>
-                  <td className="px-3 py-3">{pkg.total_weight_kg.toFixed(2)} kg</td>
-                  <td className="px-3 py-3">GHS {pkg.total_price_ghs.toFixed(2)}</td>
-                  <td className="px-3 py-3">
+                <tr key={pkg.id} className="text-slate-700 transition">
+                  <td className="font-semibold text-slate-900">{pkg.order_id}</td>
+                  <td>{pkg.customer_name}</td>
+                  <td>{getPackageTypeLabel(pkg.package_type)}</td>
+                  <td>{pkg.room_number}</td>
+                  <td>{pkg.total_weight_kg.toFixed(2)} kg</td>
+                  <td>GHS {pkg.total_price_ghs.toFixed(2)}</td>
+                  <td>
                     <span
                       className={cn(
-                        "inline-flex rounded-full px-2.5 py-1 text-xs font-medium",
+                        "status-chip",
                         statusPill(pkg.status),
                       )}
                     >
                       {getStatusLabel(pkg.status)}
                     </span>
                   </td>
-                  <td className="px-3 py-3">
+                  <td className="w-[20rem] min-w-[20rem]">
                     {(() => {
                       const selectedStatus = getSelectedStatus(pkg);
-                      const selectedWorker = getSelectedWorker(pkg.id);
                       const payableTask = getPayableTaskForStatus(
                         pkg.package_type,
                         selectedStatus,
@@ -902,11 +1057,6 @@ export function PackagesPageClient({
 
                       return (
                         <>
-                          {pendingStatusUpdate?.packageId === pkg.id ? (
-                            <p className="mb-1 text-xs font-medium text-blue-700">
-                              Updating to {getStatusLabel(pendingStatusUpdate.nextStatus)}...
-                            </p>
-                          ) : null}
                           <select
                             value={selectedStatus}
                             disabled={isBusy || pkg.status === "PICKED_UP"}
@@ -925,52 +1075,35 @@ export function PackagesPageClient({
                             ))}
                           </select>
                           {needsWorker ? (
-                            <div className="mt-2 space-y-2 rounded-xl border border-slate-200 bg-slate-50/80 p-2">
-                              <p className="text-xs text-slate-600">
-                                {getTaskLabel(payableTask.taskType)} •{" "}
-                                {getOwnerSideLabel(payableTask.ownerSide)}
-                              </p>
-                              <select
-                                value={selectedWorker}
-                                disabled={isBusy}
-                                onChange={(event) =>
-                                  setWorkerDrafts((prev) => ({
-                                    ...prev,
-                                    [pkg.id]: event.target.value as LaundryWorker,
-                                  }))
-                                }
-                                className="input-control py-2 text-xs"
-                              >
-                                {LAUNDRY_WORKERS.map((worker) => (
-                                  <option key={worker} value={worker}>
-                                    {getWorkerLabel(worker)}
-                                  </option>
-                                ))}
-                              </select>
-                            </div>
+                            <p className="mt-2 text-xs leading-5 text-slate-500">
+                              Worker selection opens in the next step for{" "}
+                              {getTaskLabel(payableTask.taskType)}.
+                            </p>
                           ) : null}
                           {selectedStatus !== pkg.status ? (
                             <button
                               type="button"
                               onClick={() =>
-                                void handleStatusChange(pkg.id, selectedStatus, selectedWorker)
+                                needsWorker
+                                  ? handleOpenStatusDialog(pkg)
+                                  : void handleStatusChange(
+                                      pkg.id,
+                                      pkg.order_id,
+                                      selectedStatus,
+                                      "NOBODY",
+                                    )
                               }
                               disabled={isBusy}
                               className="btn btn-secondary mt-2 w-full"
                             >
-                              {pendingStatusUpdate?.packageId === pkg.id
-                                ? "Updating..."
-                                : "Apply Status"}
+                              {needsWorker ? "Choose Worker" : "Apply Status"}
                             </button>
                           ) : null}
                         </>
                       );
                     })()}
                   </td>
-                  <td className="px-3 py-3">
-                    {pendingStatusUpdate?.packageId === pkg.id ? (
-                      <p className="text-xs font-medium text-blue-700">Sending update...</p>
-                    ) : null}
+                  <td className="w-[13rem] min-w-[13rem]">
                     <p>{pkg.last_delivery_state ?? "No message yet"}</p>
                     {pkg.last_notification_at ? (
                       <p className="mt-1 text-xs text-slate-500">
@@ -992,7 +1125,7 @@ export function PackagesPageClient({
               ))}
               {visiblePackages.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="px-3 py-8 text-center text-slate-500">
+                  <td colSpan={9} className="py-10 text-center text-slate-500">
                     No packages match the current filters.
                   </td>
                 </tr>
@@ -1001,6 +1134,136 @@ export function PackagesPageClient({
           </table>
         </div>
       </section>
+
+      {statusDialog ? (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/48 px-4 py-6 backdrop-blur-sm">
+          <div className="glass-card w-full max-w-[720px] overflow-hidden">
+            <div className="border-b border-slate-200/70 px-5 py-4">
+              <p className="label-kicker">Status Update</p>
+              <h3 className="font-display mt-2 text-2xl font-semibold text-slate-950">
+                {statusDialog.orderId}
+              </h3>
+              <p className="mt-2 text-sm leading-6 text-slate-600">
+                Confirm the next status and assign the worker outside the table layout.
+              </p>
+            </div>
+
+            <div className="grid gap-4 p-5">
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="metric-tile p-4">
+                  <p className="label-kicker">Current Status</p>
+                  <p className="mt-2 text-lg font-semibold text-slate-950">
+                    {getStatusLabel(statusDialog.currentStatus)}
+                  </p>
+                </div>
+                <div className="metric-tile p-4">
+                  <p className="label-kicker">Next Status</p>
+                  <select
+                    value={statusDialog.nextStatus}
+                    disabled={isBusy}
+                    onChange={(event) => {
+                      const nextStatus = event.target.value as PackageStatus;
+                      const nextTask = getPayableTaskForStatus(
+                        statusDialog.packageType,
+                        nextStatus,
+                      );
+
+                      setStatusDrafts((prev) => ({
+                        ...prev,
+                        [statusDialog.packageId]: nextStatus,
+                      }));
+                      setStatusDialog((prev) =>
+                        prev
+                          ? {
+                              ...prev,
+                              nextStatus,
+                              workerName: nextTask ? prev.workerName : "NOBODY",
+                            }
+                          : prev,
+                      );
+                    }}
+                    className="input-control mt-3"
+                  >
+                    {statusOptionsFor(statusDialog.currentStatus).map((status) => (
+                      <option key={status} value={status}>
+                        {getStatusLabel(status)}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {statusDialogTask ? (
+                <div className="grid gap-4 md:grid-cols-[1.1fr_0.9fr]">
+                  <div className="metric-tile p-4">
+                    <p className="label-kicker">Paid Task</p>
+                    <p className="mt-2 text-lg font-semibold text-slate-950">
+                      {getTaskLabel(statusDialogTask.taskType)}
+                    </p>
+                    <p className="mt-2 text-sm leading-6 text-slate-600">
+                      Owner side: {getOwnerSideLabel(statusDialogTask.ownerSide)}
+                    </p>
+                  </div>
+
+                  <div className="metric-tile p-4">
+                    <p className="label-kicker">Worker</p>
+                    <select
+                      value={statusDialog.workerName}
+                      disabled={isBusy}
+                      onChange={(event) => {
+                        const workerName = event.target.value as LaundryWorker;
+                        setWorkerDrafts((prev) => ({
+                          ...prev,
+                          [statusDialog.packageId]: workerName,
+                        }));
+                        setStatusDialog((prev) =>
+                          prev ? { ...prev, workerName } : prev,
+                        );
+                      }}
+                      className="input-control mt-3"
+                    >
+                      {LAUNDRY_WORKERS.map((worker) => (
+                        <option key={worker} value={worker}>
+                          {getWorkerLabel(worker)}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="mt-2 text-sm leading-6 text-slate-500">
+                      Choose <span className="font-semibold">Nobody</span> if you handled this task yourself.
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <div className="metric-tile p-4">
+                  <p className="label-kicker">Worker Assignment</p>
+                  <p className="mt-2 text-sm leading-6 text-slate-600">
+                    No worker payout is attached to this status change.
+                  </p>
+                </div>
+              )}
+
+              <div className="flex flex-wrap justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setStatusDialog(null)}
+                  disabled={isBusy}
+                  className="btn btn-secondary"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleConfirmStatusDialog()}
+                  disabled={isBusy}
+                  className="btn btn-primary"
+                >
+                  {busyAction === "updateStatus" ? "Saving..." : "Confirm Status Update"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {qrFullscreenOpen && lastCreated ? (
         <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/72 px-4 py-6 backdrop-blur-sm">

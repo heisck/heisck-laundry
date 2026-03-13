@@ -19,13 +19,79 @@ interface NavItem {
   href: string;
   label: string;
   short: string;
+  description: string;
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { href: "/admin/packages", label: "Packages", short: "PKG" },
-  { href: "/admin/weeks", label: "Weeks", short: "WKS" },
-  { href: "/admin/summary", label: "Order Summary", short: "SUM" },
+  {
+    href: "/admin/packages",
+    label: "Packages",
+    short: "PKG",
+    description: "Create orders, track statuses, and resend failed SMS.",
+  },
+  {
+    href: "/admin/weeks",
+    label: "Weeks",
+    short: "WKS",
+    description: "Open and close payout weeks with clearer controls.",
+  },
+  {
+    href: "/admin/summary",
+    label: "Summary",
+    short: "SUM",
+    description: "Review revenue, worker totals, and export reports.",
+  },
 ];
+
+function NavLink({
+  item,
+  active,
+  compact = false,
+  onNavigate,
+}: {
+  item: NavItem;
+  active: boolean;
+  compact?: boolean;
+  onNavigate?: () => void;
+}) {
+  return (
+    <Link
+      href={item.href}
+      onClick={onNavigate}
+      className={cn(
+        "group flex items-start gap-3 rounded-[1.15rem] border px-4 py-4 transition",
+        active
+          ? "border-teal-200 bg-teal-50 text-slate-950 shadow-sm"
+          : "border-transparent bg-white/68 text-slate-700 hover:border-slate-200 hover:bg-white",
+      )}
+      title={item.label}
+    >
+      <span
+        className={cn(
+          "inline-flex h-11 min-w-11 items-center justify-center rounded-2xl border text-[0.7rem] font-bold tracking-[0.18em]",
+          active
+            ? "border-teal-200 bg-white text-teal-700"
+            : "border-slate-200 bg-slate-50 text-slate-500",
+        )}
+      >
+        {item.short}
+      </span>
+      <span className={cn("min-w-0", compact && "flex-1")}>
+        <span className="font-display block text-base font-semibold text-inherit">
+          {item.label}
+        </span>
+        <span
+          className={cn(
+            "mt-1 block text-sm leading-5 text-slate-500",
+            active && "text-slate-600",
+          )}
+        >
+          {item.description}
+        </span>
+      </span>
+    </Link>
+  );
+}
 
 export function AdminShell({
   userEmail,
@@ -37,7 +103,6 @@ export function AdminShell({
   const router = useRouter();
   const supabase = createSupabaseBrowserClient();
 
-  const [menuCollapsed, setMenuCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [clock, setClock] = useState(() => formatAccraClockTime(new Date()));
   const [signingOut, setSigningOut] = useState(false);
@@ -58,182 +123,184 @@ export function AdminShell({
     router.refresh();
   }
 
-  const sidebarWidthClass = menuCollapsed ? "md:w-[86px]" : "md:w-[252px]";
-  const mainOffsetClass = menuCollapsed ? "md:ml-[86px]" : "md:ml-[252px]";
-
   return (
     <div className="min-h-screen bg-transparent">
-      <header className="fixed inset-x-0 top-0 z-40 border-b border-slate-200/90 bg-white/94 backdrop-blur-xl">
-        <div className="mx-auto flex h-20 max-w-[1500px] items-center justify-between px-4 md:px-6">
-          <div className="flex items-center gap-3 md:gap-4">
-            <button
-              type="button"
-              onClick={() => setMobileMenuOpen((prev) => !prev)}
-              className="btn btn-secondary px-3 md:hidden"
-            >
-              Menu
-            </button>
-            <button
-              type="button"
-              onClick={() => setMenuCollapsed((prev) => !prev)}
-              className="btn btn-secondary hidden px-3 md:inline-flex"
-            >
-              {menuCollapsed ? "Show" : "Hide"} Menu
-            </button>
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-500 to-blue-700 text-sm font-bold text-white shadow-md shadow-blue-500/30">
-              HL
+      <div className="mx-auto flex max-w-[1600px] gap-6 px-4 py-4 md:px-6 lg:px-8">
+        <aside className="sticky top-4 hidden h-[calc(100vh-2rem)] w-[310px] shrink-0 flex-col gap-4 md:flex">
+          <div className="panel-hero flex flex-col gap-6 p-5">
+            <div className="flex items-center gap-4">
+              <div className="flex h-14 w-14 items-center justify-center rounded-[1.4rem] bg-gradient-to-br from-teal-600 to-sky-700 text-sm font-extrabold tracking-[0.22em] text-white shadow-lg shadow-sky-900/15">
+                HL
+              </div>
+              <div>
+                <p className="label-kicker">Private Admin Area</p>
+                <h1 className="font-display mt-1 text-2xl font-semibold text-slate-950">
+                  Heisck Laundry
+                </h1>
+                <p className="mt-1 text-sm leading-6 text-slate-600">
+                  Clear package tracking, worker payouts, and weekly control in one place.
+                </p>
+              </div>
             </div>
-            <div>
-              <p className="text-[11px] uppercase tracking-[0.22em] text-slate-500">
-                Heisck Laundry
-              </p>
-              <h1 className="text-lg font-semibold text-slate-900 md:text-xl">{title}</h1>
-              <p className="hidden text-xs text-slate-500 md:block">{subtitle}</p>
+
+            <div className="surface-subtle grid gap-3 p-4">
+              <div>
+                <p className="label-kicker">Signed In</p>
+                <p className="mt-1 break-all text-sm font-semibold text-slate-900">
+                  {userEmail}
+                </p>
+              </div>
+              <div className="flex items-center justify-between gap-3 rounded-[1.1rem] border border-slate-200 bg-white/85 px-3 py-3">
+                <div>
+                  <p className="label-kicker">Accra Time</p>
+                  <p
+                    className="font-display mt-1 text-lg font-semibold text-slate-950"
+                    suppressHydrationWarning
+                  >
+                    {clock ?? "--:--:--"}
+                  </p>
+                </div>
+                <span className="flex h-11 w-11 items-center justify-center rounded-full bg-teal-100 text-sm font-bold text-teal-700">
+                  {adminInitials}
+                </span>
+              </div>
             </div>
           </div>
 
-          <div className="flex items-center gap-2 md:gap-3">
-            <div className="hidden rounded-xl border border-slate-200 bg-slate-50/80 px-3 py-2 md:block">
-              <p className="text-[11px] uppercase tracking-wider text-slate-500">
-                Accra Time
+          <nav className="glass-card flex flex-col gap-2 p-3">
+            {NAV_ITEMS.map((item) => {
+              const active = pathname === item.href || pathname === `${item.href}/`;
+              return <NavLink key={item.href} item={item} active={active} />;
+            })}
+          </nav>
+
+          <div className="glass-card mt-auto space-y-4 p-5">
+            <div>
+              <p className="label-kicker">Security</p>
+              <p className="mt-2 text-sm leading-6 text-slate-600">
+                Admin pages stay behind Supabase auth. Sign out when the device is shared.
               </p>
-              <p className="font-mono text-sm font-semibold text-slate-900" suppressHydrationWarning>
-                {clock ?? "--:--:--"}
-              </p>
-            </div>
-            <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white/90 px-2 py-2 md:px-3">
-              <span className="flex h-9 w-9 items-center justify-center rounded-full bg-blue-100 text-sm font-semibold text-blue-700">
-                {adminInitials}
-              </span>
-              <div className="hidden max-w-[16rem] md:block">
-                <p className="truncate text-sm font-medium text-slate-900">{userEmail}</p>
-                <p className="text-xs text-slate-500">Admin Profile</p>
-              </div>
             </div>
             <button
               type="button"
               onClick={handleSignOut}
               disabled={signingOut}
-              className="btn btn-secondary"
+              className="btn btn-secondary w-full"
             >
               {signingOut ? "Signing out..." : "Sign Out"}
             </button>
           </div>
-        </div>
-      </header>
+        </aside>
 
-      <aside
-        className={cn(
-          "fixed bottom-0 left-0 top-20 z-30 hidden overflow-y-auto border-r border-slate-200 bg-white/92 backdrop-blur-xl md:block",
-          "transition-all duration-200",
-          sidebarWidthClass,
-        )}
-      >
-        <div className="px-3 py-4">
-          <p
-            className={cn(
-              "mb-2 px-3 text-[11px] uppercase tracking-[0.18em] text-slate-500",
-              menuCollapsed && "text-center",
-            )}
-          >
-            Admin Menu
-          </p>
-          <nav className="divide-y divide-slate-200/90 rounded-2xl border border-slate-200 bg-slate-50/75">
-            {NAV_ITEMS.map((item) => {
-              const active = pathname === item.href || pathname === `${item.href}/`;
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className={cn(
-                    "flex items-center gap-3 px-3 py-3 text-sm transition",
-                    active
-                      ? "bg-blue-50 text-blue-700"
-                      : "text-slate-700 hover:bg-white hover:text-slate-900",
-                    menuCollapsed && "justify-center",
-                  )}
-                  title={item.label}
-                >
-                  <span
-                    className={cn(
-                      "inline-flex min-w-10 items-center justify-center rounded-lg border text-[11px] font-semibold",
-                      active
-                        ? "border-blue-200 bg-white text-blue-700"
-                        : "border-slate-200 bg-white text-slate-500",
-                    )}
+        <div className="min-w-0 flex-1">
+          <div className="panel-hero mb-5 flex items-center justify-between gap-3 px-4 py-4 md:hidden">
+            <div className="flex min-w-0 items-center gap-3">
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-[1.2rem] bg-gradient-to-br from-teal-600 to-sky-700 text-sm font-extrabold tracking-[0.2em] text-white">
+                HL
+              </div>
+              <div className="min-w-0">
+                <p className="label-kicker">Admin</p>
+                <p className="font-display truncate text-lg font-semibold text-slate-950">
+                  {title}
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setMobileMenuOpen(true)}
+              className="btn btn-secondary px-4"
+            >
+              Menu
+            </button>
+          </div>
+
+          <section className="panel-hero mb-6 px-5 py-6 md:px-7 md:py-7">
+            <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
+              <div className="max-w-3xl">
+                <p className="label-kicker">Operations Console</p>
+                <h2 className="font-display mt-2 text-3xl font-semibold tracking-tight text-slate-950 md:text-[2.6rem]">
+                  {title}
+                </h2>
+                <p className="mt-3 max-w-2xl text-base leading-7 text-slate-600 md:text-lg">
+                  {subtitle}
+                </p>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2 xl:min-w-[22rem]">
+                <div className="metric-tile px-4 py-4">
+                  <p className="label-kicker">Admin Session</p>
+                  <p className="mt-2 text-sm font-semibold text-slate-900">Authenticated</p>
+                  <p className="mt-1 text-sm text-slate-600">Supabase-protected access only.</p>
+                </div>
+                <div className="metric-tile px-4 py-4">
+                  <p className="label-kicker">Local Time</p>
+                  <p
+                    className="font-display mt-2 text-xl font-semibold text-slate-950"
+                    suppressHydrationWarning
                   >
-                    {item.short}
-                  </span>
-                  <span className={cn(menuCollapsed && "hidden")}>{item.label}</span>
-                </Link>
-              );
-            })}
-          </nav>
+                    {clock ?? "--:--:--"}
+                  </p>
+                  <p className="mt-1 text-sm text-slate-600">Accra clock for operations.</p>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <div className="space-y-5">{children}</div>
         </div>
-      </aside>
+      </div>
 
       {mobileMenuOpen ? (
         <div className="fixed inset-0 z-50 md:hidden">
           <button
             type="button"
             onClick={() => setMobileMenuOpen(false)}
-            className="absolute inset-0 bg-slate-900/35"
+            className="absolute inset-0 bg-slate-950/42 backdrop-blur-sm"
             aria-label="Close menu"
           />
-          <aside className="absolute left-0 top-0 h-full w-[270px] border-r border-slate-200 bg-white p-4">
-            <div className="mb-4 flex items-center justify-between">
-              <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Admin Menu</p>
-              <button
-                type="button"
-                onClick={() => setMobileMenuOpen(false)}
-                className="btn btn-secondary px-3"
-              >
-                Close
-              </button>
+          <aside className="absolute right-0 top-0 flex h-full w-[min(92vw,24rem)] flex-col gap-4 border-l border-slate-200 bg-[var(--background-soft)] p-4">
+            <div className="panel-hero p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="label-kicker">Signed In</p>
+                  <p className="mt-2 text-sm font-semibold text-slate-900">{userEmail}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="btn btn-secondary px-4"
+                >
+                  Close
+                </button>
+              </div>
             </div>
-            <nav className="divide-y divide-slate-200 rounded-2xl border border-slate-200 bg-slate-50/80">
+
+            <nav className="glass-card flex flex-col gap-2 p-3">
               {NAV_ITEMS.map((item) => {
                 const active = pathname === item.href || pathname === `${item.href}/`;
                 return (
-                  <Link
+                  <NavLink
                     key={item.href}
-                    href={item.href}
-                    onClick={() => setMobileMenuOpen(false)}
-                    className={cn(
-                      "flex items-center gap-3 px-3 py-3 text-sm",
-                      active
-                        ? "bg-blue-50 font-medium text-blue-700"
-                        : "text-slate-700",
-                    )}
-                  >
-                    <span
-                      className={cn(
-                        "inline-flex min-w-10 items-center justify-center rounded-lg border text-[11px] font-semibold",
-                        active
-                          ? "border-blue-200 bg-white text-blue-700"
-                          : "border-slate-200 bg-white text-slate-500",
-                      )}
-                    >
-                      {item.short}
-                    </span>
-                    <span>{item.label}</span>
-                  </Link>
+                    item={item}
+                    active={active}
+                    compact
+                    onNavigate={() => setMobileMenuOpen(false)}
+                  />
                 );
               })}
             </nav>
+
+            <button
+              type="button"
+              onClick={handleSignOut}
+              disabled={signingOut}
+              className="btn btn-secondary mt-auto w-full"
+            >
+              {signingOut ? "Signing out..." : "Sign Out"}
+            </button>
           </aside>
         </div>
       ) : null}
-
-      <main className={cn("px-4 pb-10 pt-24 md:px-6", mainOffsetClass)}>
-        <div className="mx-auto max-w-[1250px]">
-          <section className="glass-card mb-4 border border-slate-200/80 p-5">
-            <h2 className="text-lg font-semibold text-slate-900">{title}</h2>
-            <p className="mt-1 text-sm text-slate-600">{subtitle}</p>
-          </section>
-          {children}
-        </div>
-      </main>
     </div>
   );
 }
