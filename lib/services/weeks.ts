@@ -1,15 +1,38 @@
 import { getDb, withDbConnectionRetry } from "@/lib/db";
+import {
+  buildExpressBusinessSummary,
+  buildPackageTypeSummary,
+  buildWorkerPayoutSummaries,
+  createEmptyExpressBusinessSummary,
+  createEmptyPackageTypeSummary,
+  createEmptyWorkerPayoutSummaries,
+} from "@/lib/payouts";
 import { addDays } from "@/lib/time";
 import type {
+  ExpressBusinessSummary,
+  PackageTypeSummary,
   ProcessingWeek,
   ProcessingWeekWithReport,
   WeekReportRow,
   WeekReportSummary,
   WeekSnapshot,
+  WeekTaskEntry,
+  WorkerPayoutSummary,
 } from "@/lib/types";
 import { AppError } from "@/lib/app-error";
 
 export const SYSTEM_ACTOR_ID = "00000000-0000-0000-0000-000000000001";
+
+interface CurrentWeekCacheEntry {
+  cachedAt: string;
+  week: ProcessingWeek | null;
+}
+
+declare global {
+  var __currentProcessingWeekCache: CurrentWeekCacheEntry | undefined;
+}
+
+const CURRENT_WEEK_CACHE_TTL_MS = 15000;
 
 function toNumber(value: unknown): number {
   const num = Number(value ?? 0);
@@ -59,19 +82,58 @@ function defaultWeekLabel(startAt: Date): string {
   return `Week ${startAt.toISOString().slice(0, 10)}`;
 }
 
-export async function getCurrentProcessingWeek(): Promise<ProcessingWeek | null> {
-  const rows = await withDbConnectionRetry(async () => {
-    const sql = getDb();
-    return sql`
-      select id, label, start_at, end_at, status, closed_at, closed_by, created_at
-      from processing_weeks
-      where status = 'ACTIVE'
-      order by start_at desc
-      limit 1
-    `;
-  });
+function getCachedCurrentWeek(): CurrentWeekCacheEntry | null {
+  return globalThis.__currentProcessingWeekCache ?? null;
+}
 
-  return rows.length > 0 ? mapWeek(rows[0] as Record<string, unknown>) : null;
+function setCachedCurrentWeek(week: ProcessingWeek | null) {
+  globalThis.__currentProcessingWeekCache = {
+    cachedAt: new Date().toISOString(),
+    week,
+  };
+}
+
+export function invalidateCurrentProcessingWeekCache() {
+  globalThis.__currentProcessingWeekCache = undefined;
+}
+
+export async function getCurrentProcessingWeek(): Promise<ProcessingWeek | null> {
+  const cached = getCachedCurrentWeek();
+  const now = Date.now();
+
+  if (
+    cached &&
+    now - new Date(cached.cachedAt).getTime() <= CURRENT_WEEK_CACHE_TTL_MS
+  ) {
+    return cached.week;
+  }
+
+  try {
+    const rows = await withDbConnectionRetry(async () => {
+      const sql = getDb();
+      return sql`
+        select id, label, start_at, end_at, status, closed_at, closed_by, created_at
+        from processing_weeks
+        where status = 'ACTIVE'
+        order by start_at desc
+        limit 1
+      `;
+    });
+
+    const week = rows.length > 0 ? mapWeek(rows[0] as Record<string, unknown>) : null;
+    setCachedCurrentWeek(week);
+    return week;
+  } catch (error) {
+    if (cached) {
+      console.warn("[weeks] serving stale current week after load failure", {
+        cachedAt: cached.cachedAt,
+        message: error instanceof Error ? error.message : "Unknown error",
+      });
+      return cached.week;
+    }
+
+    throw error;
+  }
 }
 
 export async function listProcessingWeeks(): Promise<ProcessingWeekWithReport[]> {
@@ -138,7 +200,9 @@ export async function startProcessingWeek(
       return inserted[0] as Record<string, unknown>;
     });
 
-    return mapWeek(created);
+    const week = mapWeek(created);
+    invalidateCurrentProcessingWeekCache();
+    return week;
   } catch (error) {
     if (error instanceof AppError) {
       throw error;
@@ -168,6 +232,7 @@ function mapReportRow(row: Record<string, unknown>): WeekReportRow {
     order_id: String(row.order_id),
     customer_name: String(row.customer_name),
     room_number: String(row.room_number),
+    package_type: String(row.package_type ?? "NORMAL_WASH_DRY") as WeekReportRow["package_type"],
     clothes_count: Number(row.clothes_count ?? 0),
     total_weight_kg: toNumber(row.total_weight_kg),
     total_price_ghs: toNumber(row.total_price_ghs),
@@ -175,6 +240,22 @@ function mapReportRow(row: Record<string, unknown>): WeekReportRow {
     secondary_phone: row.secondary_phone ? String(row.secondary_phone) : null,
     status_at_close: String(row.status_at_close) as WeekReportRow["status_at_close"],
     created_at: new Date(String(row.created_at)).toISOString(),
+  };
+}
+
+function mapTaskEntry(row: Record<string, unknown>): WeekTaskEntry {
+  return {
+    id: String(row.id),
+    week_id: String(row.week_id),
+    package_id: String(row.package_id),
+    order_id: String(row.order_id),
+    room_number: String(row.room_number),
+    package_type: String(row.package_type ?? "NORMAL_WASH_DRY") as WeekTaskEntry["package_type"],
+    task_type: String(row.task_type) as WeekTaskEntry["task_type"],
+    worker_name: String(row.worker_name) as WeekTaskEntry["worker_name"],
+    owner_side: String(row.owner_side) as WeekTaskEntry["owner_side"],
+    amount_ghs: toNumber(row.amount_ghs),
+    assigned_at: new Date(String(row.assigned_at)).toISOString(),
   };
 }
 
@@ -272,6 +353,7 @@ export async function closeProcessingWeek(
           order_id,
           customer_name,
           room_number,
+          package_type,
           clothes_count,
           total_weight_kg,
           total_price_ghs,
@@ -286,6 +368,7 @@ export async function closeProcessingWeek(
         p.order_id,
         p.customer_name,
         p.room_number,
+        p.package_type,
         p.clothes_count,
         p.total_weight_kg,
         p.total_price_ghs,
@@ -295,6 +378,36 @@ export async function closeProcessingWeek(
         p.created_at
       from packages p
       where p.week_id = ${weekId}
+    `;
+
+    await trx`
+      insert into week_report_task_entries
+        (
+          week_id,
+          package_id,
+          order_id,
+          room_number,
+          package_type,
+          task_type,
+          worker_name,
+          owner_side,
+          amount_ghs,
+          assigned_at
+        )
+      select
+        ${weekId},
+        pta.package_id,
+        p.order_id,
+        p.room_number,
+        p.package_type,
+        pta.task_type,
+        pta.worker_name,
+        pta.owner_side,
+        pta.amount_ghs,
+        pta.assigned_at
+      from package_task_assignments pta
+      join packages p on p.id = pta.package_id
+      where pta.week_id = ${weekId}
     `;
 
     const nextStart = closeTime;
@@ -307,6 +420,8 @@ export async function closeProcessingWeek(
         (${defaultWeekLabel(nextStart)}, ${nextStart.toISOString()}, ${nextEnd.toISOString()}, 'ACTIVE', null, null, now())
       returning id, label, start_at, end_at, status, closed_at, closed_by, created_at
     `;
+
+    invalidateCurrentProcessingWeekCache();
 
     return {
       closedWeek: mapWeek(closedRows[0] as Record<string, unknown>),
@@ -390,6 +505,7 @@ export async function getWeekSnapshot(weekId: string): Promise<WeekSnapshot> {
       order_id,
       customer_name,
       room_number,
+      package_type,
       clothes_count,
       total_weight_kg,
       total_price_ghs,
@@ -402,9 +518,102 @@ export async function getWeekSnapshot(weekId: string): Promise<WeekSnapshot> {
     order by created_at asc
   `;
 
+  const taskRows = await sql`
+    select
+      id,
+      week_id,
+      package_id,
+      order_id,
+      room_number,
+      package_type,
+      task_type,
+      worker_name,
+      owner_side,
+      amount_ghs,
+      assigned_at
+    from week_report_task_entries
+    where week_id = ${weekId}
+    order by assigned_at asc
+  `;
+
+  const mappedRows = rows.map((row) => mapReportRow(row as Record<string, unknown>));
+  const mappedTaskEntries = taskRows.map((row) =>
+    mapTaskEntry(row as Record<string, unknown>),
+  );
+
   return {
     week,
     report: mapSummary(reportRows[0] as Record<string, unknown>),
-    rows: rows.map((row) => mapReportRow(row as Record<string, unknown>)),
+    rows: mappedRows,
+    task_entries: mappedTaskEntries,
+    package_type_summary: buildPackageTypeSummary(mappedRows),
+    express_business_summary: buildExpressBusinessSummary(mappedRows),
+    worker_payout_summaries: buildWorkerPayoutSummaries(mappedTaskEntries),
+  };
+}
+
+export async function getWeekOperationalSummary(
+  weekId: string | null,
+): Promise<{
+  packageTypeSummary: PackageTypeSummary;
+  expressBusinessSummary: ExpressBusinessSummary;
+  workerPayoutSummaries: WorkerPayoutSummary[];
+}> {
+  if (!weekId) {
+    return {
+      packageTypeSummary: createEmptyPackageTypeSummary(),
+      expressBusinessSummary: createEmptyExpressBusinessSummary(),
+      workerPayoutSummaries: createEmptyWorkerPayoutSummaries(),
+    };
+  }
+
+  const [packageRows, taskRows] = await withDbConnectionRetry(async () => {
+    const sql = getDb();
+    return Promise.all([
+      sql`
+        select package_type, total_weight_kg, total_price_ghs
+        from packages
+        where week_id = ${weekId}
+      `,
+      sql`
+        select worker_name, task_type, owner_side, amount_ghs
+        from package_task_assignments
+        where week_id = ${weekId}
+        order by assigned_at asc
+      `,
+    ]);
+  });
+
+  return {
+    packageTypeSummary: buildPackageTypeSummary(
+      packageRows.map((row) => ({
+        package_type: String(
+          (row as { package_type?: string }).package_type ?? "NORMAL_WASH_DRY",
+        ) as WeekReportRow["package_type"],
+      })),
+    ),
+    expressBusinessSummary: buildExpressBusinessSummary(
+      packageRows.map((row) => ({
+        package_type: String(
+          (row as { package_type?: string }).package_type ?? "NORMAL_WASH_DRY",
+        ) as WeekReportRow["package_type"],
+        total_weight_kg: toNumber((row as { total_weight_kg?: unknown }).total_weight_kg),
+        total_price_ghs: toNumber((row as { total_price_ghs?: unknown }).total_price_ghs),
+      })),
+    ),
+    workerPayoutSummaries: buildWorkerPayoutSummaries(
+      taskRows.map((row) => ({
+        worker_name: String(
+          (row as { worker_name?: string }).worker_name ?? "NOBODY",
+        ) as WeekTaskEntry["worker_name"],
+        task_type: String(
+          (row as { task_type?: string }).task_type ?? "WASHING",
+        ) as WeekTaskEntry["task_type"],
+        owner_side: String(
+          (row as { owner_side?: string }).owner_side ?? "YOUR_SIDE",
+        ) as WeekTaskEntry["owner_side"],
+        amount_ghs: toNumber((row as { amount_ghs?: unknown }).amount_ghs),
+      })),
+    ),
   };
 }

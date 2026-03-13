@@ -8,18 +8,29 @@ import {
   calculatePackagePricing,
   getSuggestedEtaDate,
 } from "@/lib/package-pricing";
+import {
+  getPayableTaskForStatus,
+  shouldSendStatusSms,
+} from "@/lib/payouts";
 import { dedupePhones, normalizeGhanaPhone } from "@/lib/phone";
 import { sendArkeselSms } from "@/lib/sms/arkesel";
 import { isForwardTransition } from "@/lib/status";
 import { addDays } from "@/lib/time";
 import { signTrackingToken } from "@/lib/tracking-token";
 import type {
+  LaundryWorker,
   NotificationLogRecord,
   NotificationTriggerType,
+  PackageTaskAssignmentRecord,
   PackageRecord,
   PackageStatus,
   PackageType,
 } from "@/lib/types";
+
+interface PackageListCacheEntry {
+  cachedAt: string;
+  packages: PackageRecord[];
+}
 
 interface CreatePackageInput {
   customerName: string;
@@ -53,6 +64,16 @@ interface PackageSmsDispatchResult {
   notifications: SmsDispatchResult[];
 }
 
+interface NotificationBehaviorOptions {
+  sendNotifications?: boolean;
+}
+
+declare global {
+  var __packagesListCache: PackageListCacheEntry | undefined;
+}
+
+const PACKAGES_LIST_CACHE_TTL_MS = 15000;
+
 function toNumber(value: unknown): number {
   const num = Number(value ?? 0);
   return Number.isFinite(num) ? num : 0;
@@ -60,6 +81,21 @@ function toNumber(value: unknown): number {
 
 function escapeRegExp(input: string): string {
   return input.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function getCachedPackageList(): PackageListCacheEntry | null {
+  return globalThis.__packagesListCache ?? null;
+}
+
+function setCachedPackageList(packages: PackageRecord[]) {
+  globalThis.__packagesListCache = {
+    cachedAt: new Date().toISOString(),
+    packages,
+  };
+}
+
+export function invalidatePackagesListCache() {
+  globalThis.__packagesListCache = undefined;
 }
 
 function mapPackage(row: Record<string, unknown>): PackageRecord {
@@ -109,6 +145,22 @@ function mapNotification(row: Record<string, unknown>): NotificationLogRecord {
     delivery_state: String(row.delivery_state),
     error_text: row.error_text ? String(row.error_text) : null,
     sent_at: new Date(String(row.sent_at)).toISOString(),
+  };
+}
+
+function mapTaskAssignment(
+  row: Record<string, unknown>,
+): PackageTaskAssignmentRecord {
+  return {
+    id: String(row.id),
+    package_id: String(row.package_id),
+    week_id: String(row.week_id),
+    task_type: String(row.task_type) as PackageTaskAssignmentRecord["task_type"],
+    worker_name: String(row.worker_name) as LaundryWorker,
+    owner_side: String(row.owner_side) as PackageTaskAssignmentRecord["owner_side"],
+    amount_ghs: toNumber(row.amount_ghs),
+    assigned_by: String(row.assigned_by),
+    assigned_at: new Date(String(row.assigned_at)).toISOString(),
   };
 }
 
@@ -242,6 +294,14 @@ function mergeNotificationSnapshot(
   };
 }
 
+function markNotificationPending(packageRecord: PackageRecord): PackageRecord {
+  return {
+    ...packageRecord,
+    last_delivery_state: "PENDING",
+    last_notification_at: new Date().toISOString(),
+  };
+}
+
 async function dispatchSmsToRecipient(params: {
   packageRecord: PackageRecord;
   triggerType: NotificationTriggerType;
@@ -308,6 +368,13 @@ async function dispatchPackageSms(params: {
   statusContext: PackageStatus | null;
   trackingUrl?: string;
 }): Promise<SmsDispatchResult[]> {
+  if (
+    params.triggerType === "STATUS_CHANGED" &&
+    !shouldSendStatusSms(params.statusContext ?? params.packageRecord.status)
+  ) {
+    return [];
+  }
+
   const message = buildMessage({
     orderId: params.packageRecord.order_id,
     status: params.statusContext ?? params.packageRecord.status,
@@ -337,6 +404,16 @@ async function dispatchCurrentPackageSms(
 ): Promise<PackageSmsDispatchResult> {
   const triggerType: NotificationTriggerType =
     packageRecord.status === "RECEIVED" ? "CREATED" : "STATUS_CHANGED";
+  if (
+    triggerType === "STATUS_CHANGED" &&
+    !shouldSendStatusSms(packageRecord.status)
+  ) {
+    return {
+      package: packageRecord,
+      notifications: [],
+    };
+  }
+
   const trackingUrl =
     packageRecord.status === "RECEIVED"
       ? await createTrackingUrl(
@@ -359,9 +436,105 @@ async function dispatchCurrentPackageSms(
   };
 }
 
+export async function sendCreatedPackageNotifications(
+  packageRecord: PackageRecord,
+  trackingUrl?: string,
+): Promise<PackageSmsDispatchResult> {
+  const resolvedTrackingUrl =
+    trackingUrl ??
+    (await createTrackingUrl(
+      packageRecord.id,
+      packageRecord.tracking_token_id,
+      new Date(packageRecord.expires_at),
+    ));
+
+  const notifications = await dispatchPackageSms({
+    packageRecord,
+    triggerType: "CREATED",
+    statusContext: packageRecord.status,
+    trackingUrl: resolvedTrackingUrl,
+  });
+
+  return {
+    package: mergeNotificationSnapshot(packageRecord, notifications),
+    notifications,
+  };
+}
+
+export async function sendStatusPackageNotifications(
+  packageRecord: PackageRecord,
+  statusContext: PackageStatus,
+): Promise<PackageSmsDispatchResult> {
+  const notifications = await dispatchPackageSms({
+    packageRecord,
+    triggerType: "STATUS_CHANGED",
+    statusContext,
+  });
+
+  return {
+    package: mergeNotificationSnapshot(packageRecord, notifications),
+    notifications,
+  };
+}
+
+async function assignPayableTask(params: {
+  tx: ReturnType<typeof getDb>;
+  packageRecord: PackageRecord;
+  nextStatus: PackageStatus;
+  workerName: LaundryWorker;
+  userId: string;
+}): Promise<PackageTaskAssignmentRecord | null> {
+  const task = getPayableTaskForStatus(
+    params.packageRecord.package_type,
+    params.nextStatus,
+  );
+  if (!task) {
+    return null;
+  }
+
+  const amountGhs = params.workerName === "NOBODY" ? 0 : task.amountGhs;
+  const rows = await params.tx`
+    insert into package_task_assignments
+      (
+        package_id,
+        week_id,
+        task_type,
+        worker_name,
+        owner_side,
+        amount_ghs,
+        assigned_by,
+        assigned_at
+      )
+    values
+      (
+        ${params.packageRecord.id},
+        ${params.packageRecord.week_id},
+        ${task.taskType},
+        ${params.workerName},
+        ${task.ownerSide},
+        ${amountGhs},
+        ${params.userId},
+        now()
+      )
+    on conflict (package_id, task_type) do nothing
+    returning *
+  `;
+
+  if (rows.length === 0) {
+    throw new AppError(
+      "TASK_ALREADY_RECORDED",
+      409,
+      "This task has already been recorded for the package.",
+    );
+  }
+
+  return mapTaskAssignment(rows[0] as Record<string, unknown>);
+}
+
 export async function createPackage(
   input: CreatePackageInput,
   userId: string,
+  options?: NotificationBehaviorOptions,
 ): Promise<CreatePackageResult> {
   const normalizedPrimary = normalizeGhanaPhone(input.primaryPhone);
   if (!normalizedPrimary) {
@@ -523,6 +696,7 @@ export async function createPackage(
   });
 
   const mappedPackage = mapPackage(insertedPackage);
+  invalidatePackagesListCache();
   const trackingUrl = await createTrackingUrl(
     mappedPackage.id,
     mappedPackage.tracking_token_id,
@@ -533,15 +707,23 @@ export async function createPackage(
     margin: 1,
   });
 
-  const notifications = await dispatchPackageSms({
-    packageRecord: mappedPackage,
-    triggerType: "CREATED",
-    statusContext: mappedPackage.status,
-    trackingUrl,
-  });
+  const shouldSendNotifications = options?.sendNotifications ?? true;
+  const notifications = shouldSendNotifications
+    ? await dispatchPackageSms({
+        packageRecord: mappedPackage,
+        triggerType: "CREATED",
+        statusContext: mappedPackage.status,
+        trackingUrl,
+      })
+    : [];
 
   return {
-    package: mergeNotificationSnapshot(mappedPackage, notifications),
+    package:
+      shouldSendNotifications && notifications.length > 0
+        ? mergeNotificationSnapshot(mappedPackage, notifications)
+        : shouldSendNotifications
+          ? mappedPackage
+          : markNotificationPending(mappedPackage),
     trackingUrl,
     qrCodeDataUrl,
     notifications,
@@ -552,37 +734,77 @@ export async function listPackages(options?: {
   search?: string;
   status?: PackageStatus;
 }): Promise<PackageRecord[]> {
-  const rows = await withDbConnectionRetry(async () => {
-    const sql = getDb();
-    const pattern = options?.search ? `%${options.search.trim()}%` : null;
+  const useDefaultCache = !options?.search && !options?.status;
+  const cached = useDefaultCache ? getCachedPackageList() : null;
+  const now = Date.now();
 
-    return sql`
-      select
-        p.*,
-        w.status as week_status,
-        latest_notification.delivery_state as last_delivery_state,
-        latest_notification.sent_at as last_notification_at
-      from packages p
-      join processing_weeks w on w.id = p.week_id
-      left join lateral (
-        select delivery_state, sent_at
-        from notification_logs nl
-        where nl.package_id = p.id
-        order by nl.sent_at desc
-        limit 1
-      ) latest_notification on true
-      where
-        (${pattern}::text is null
-          or p.order_id ilike ${pattern}
-          or p.room_number ilike ${pattern}
-          or p.customer_name ilike ${pattern})
-        and (${options?.status ?? null}::text is null or p.status = ${options?.status ?? null})
-      order by p.created_at desc
-      limit 200
-    `;
-  });
+  if (
+    cached &&
+    now - new Date(cached.cachedAt).getTime() <= PACKAGES_LIST_CACHE_TTL_MS
+  ) {
+    return cached.packages;
+  }
 
-  return rows.map((row) => mapPackage(row as Record<string, unknown>));
+  try {
+    const rows = await withDbConnectionRetry(async () => {
+      const sql = getDb();
+      const pattern = options?.search ? `%${options.search.trim()}%` : null;
+
+      return sql`
+        select
+          p.*,
+          w.status as week_status,
+          latest_notification.delivery_state as last_delivery_state,
+          latest_notification.sent_at as last_notification_at
+        from packages p
+        join processing_weeks w on w.id = p.week_id
+        left join lateral (
+          select delivery_state, sent_at
+          from notification_logs nl
+          where nl.package_id = p.id
+          order by nl.sent_at desc
+          limit 1
+        ) latest_notification on true
+        where
+          (${pattern}::text is null
+            or p.order_id ilike ${pattern}
+            or p.room_number ilike ${pattern}
+            or p.customer_name ilike ${pattern})
+          and (${options?.status ?? null}::text is null or p.status = ${options?.status ?? null})
+        order by p.created_at desc
+        limit 200
+      `;
+    });
+
+    const mappedRows = rows.map((row) => mapPackage(row as Record<string, unknown>));
+
+    if (useDefaultCache) {
+      setCachedPackageList(mappedRows);
+    }
+
+    return mappedRows;
+  } catch (error) {
+    if (cached) {
+      console.warn("[packages] serving stale package list after load failure", {
+        cachedAt: cached.cachedAt,
+        message: error instanceof Error ? error.message : "Unknown error",
+      });
+      return cached.packages;
+    }
+
+    if (!useDefaultCache) {
+      const defaultCached = getCachedPackageList();
+      if (defaultCached) {
+        console.warn("[packages] filtering cached package list after query failure", {
+          cachedAt: defaultCached.cachedAt,
+          message: error instanceof Error ? error.message : "Unknown error",
+        });
+        return filterPackages(defaultCached.packages, options);
+      }
+    }
+
+    throw error;
+  }
 }
 
 export async function getPackageById(packageId: string): Promise<PackageRecord> {
@@ -641,10 +863,69 @@ export async function getPackageNotifications(
   return rows.map((row) => mapNotification(row as Record<string, unknown>));
 }
 
+async function getLatestPackageNotification(
+  packageId: string,
+): Promise<NotificationLogRecord | null> {
+  const rows = await withDbConnectionRetry(async () => {
+    const sql = getDb();
+    return sql`
+      select
+        id,
+        package_id,
+        trigger_type,
+        status_context,
+        phone_number,
+        provider,
+        provider_message_id,
+        delivery_state,
+        error_text,
+        sent_at
+      from notification_logs
+      where package_id = ${packageId}
+      order by sent_at desc
+      limit 1
+    `;
+  });
+
+  return rows.length === 0
+    ? null
+    : mapNotification(rows[0] as Record<string, unknown>);
+}
+
+function filterPackages(
+  records: PackageRecord[],
+  options?: {
+    search?: string;
+    status?: PackageStatus;
+  },
+): PackageRecord[] {
+  const search = options?.search?.trim().toLowerCase() ?? "";
+  const status = options?.status ?? null;
+
+  return records.filter((record) => {
+    const matchesStatus = status === null || record.status === status;
+    if (!matchesStatus) {
+      return false;
+    }
+
+    if (!search) {
+      return true;
+    }
+
+    return (
+      record.order_id.toLowerCase().includes(search) ||
+      record.room_number.toLowerCase().includes(search) ||
+      record.customer_name.toLowerCase().includes(search)
+    );
+  });
+}
+
 export async function updatePackageStatus(
   packageId: string,
   nextStatus: PackageStatus,
   userId: string,
+  workerName: LaundryWorker = "NOBODY",
+  options?: NotificationBehaviorOptions,
 ): Promise<{
   package: PackageRecord;
   skipped: boolean;
@@ -701,6 +982,14 @@ export async function updatePackageStatus(
           (${packageId}, ${existing.status}, ${nextStatus}, ${userId}, now())
       `;
 
+      await assignPayableTask({
+        tx: trx,
+        packageRecord: existing,
+        nextStatus,
+        workerName,
+        userId,
+      });
+
       const row = rows[0] as Record<string, unknown>;
       return {
         package: mapPackage({
@@ -722,6 +1011,19 @@ export async function updatePackageStatus(
     };
   }
 
+  invalidatePackagesListCache();
+
+  const shouldSendNotifications = options?.sendNotifications ?? true;
+  if (!shouldSendNotifications) {
+    return {
+      package: shouldSendStatusSms(nextStatus)
+        ? markNotificationPending(updatedPackage.package)
+        : updatedPackage.package,
+      skipped: false,
+      notifications: [],
+    };
+  }
+
   const notifications = await dispatchPackageSms({
     packageRecord: updatedPackage.package,
     triggerType: "STATUS_CHANGED",
@@ -739,5 +1041,40 @@ export async function retryPackageNotifications(
   packageId: string,
 ): Promise<PackageSmsDispatchResult> {
   const packageRecord = await getPackageById(packageId);
-  return dispatchCurrentPackageSms(packageRecord);
+  const latestNotification = await getLatestPackageNotification(packageId);
+
+  if (!latestNotification) {
+    return dispatchCurrentPackageSms(packageRecord);
+  }
+
+  if (latestNotification.delivery_state !== "FAILED") {
+    throw new AppError(
+      "NOTIFICATION_NOT_RETRYABLE",
+      409,
+      "Only failed notifications can be retried.",
+    );
+  }
+
+  const triggerType = latestNotification.trigger_type;
+  const statusContext = latestNotification.status_context ?? packageRecord.status;
+  const trackingUrl =
+    triggerType === "CREATED"
+      ? await createTrackingUrl(
+          packageRecord.id,
+          packageRecord.tracking_token_id,
+          new Date(packageRecord.expires_at),
+        )
+      : undefined;
+
+  const notifications = await dispatchPackageSms({
+    packageRecord,
+    triggerType,
+    statusContext,
+    trackingUrl,
+  });
+
+  return {
+    package: mergeNotificationSnapshot(packageRecord, notifications),
+    notifications,
+  };
 }

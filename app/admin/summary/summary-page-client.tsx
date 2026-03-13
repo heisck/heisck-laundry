@@ -3,11 +3,15 @@
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { getWorkerLabel } from "@/lib/payouts";
 import { formatAccraDateTime } from "@/lib/time";
 import type {
+  ExpressBusinessSummary,
   PackageRecord,
+  PackageTypeSummary,
   ProcessingWeek,
   ProcessingWeekWithReport,
+  WorkerPayoutSummary,
 } from "@/lib/types";
 
 import { AdminShell } from "../_components/admin-shell";
@@ -19,6 +23,9 @@ interface SummaryPageClientProps {
   initialCurrentWeek: ProcessingWeek | null;
   initialWeeks: ProcessingWeekWithReport[];
   initialPackages: PackageRecord[];
+  initialPackageTypeSummary: PackageTypeSummary;
+  initialExpressBusinessSummary: ExpressBusinessSummary;
+  initialWorkerPayoutSummaries: WorkerPayoutSummary[];
   initialLoadReady: boolean;
   initialLoadError: string | null;
 }
@@ -28,6 +35,9 @@ interface DashboardPayload {
   remainingSeconds: number;
   weeks: ProcessingWeekWithReport[];
   packages: PackageRecord[];
+  packageTypeSummary: PackageTypeSummary;
+  expressBusinessSummary: ExpressBusinessSummary;
+  workerPayoutSummaries: WorkerPayoutSummary[];
 }
 
 function SkeletonSummaryPage({ userEmail }: { userEmail: string }) {
@@ -55,6 +65,9 @@ export function SummaryPageClient({
   initialCurrentWeek,
   initialWeeks,
   initialPackages,
+  initialPackageTypeSummary,
+  initialExpressBusinessSummary,
+  initialWorkerPayoutSummaries,
   initialLoadReady,
   initialLoadError,
 }: SummaryPageClientProps) {
@@ -65,6 +78,12 @@ export function SummaryPageClient({
   );
   const [weeks, setWeeks] = useState<ProcessingWeekWithReport[]>(initialWeeks);
   const [packages, setPackages] = useState<PackageRecord[]>(initialPackages);
+  const [packageTypeSummary, setPackageTypeSummary] =
+    useState<PackageTypeSummary>(initialPackageTypeSummary);
+  const [expressBusinessSummary, setExpressBusinessSummary] =
+    useState<ExpressBusinessSummary>(initialExpressBusinessSummary);
+  const [workerPayoutSummaries, setWorkerPayoutSummaries] =
+    useState<WorkerPayoutSummary[]>(initialWorkerPayoutSummaries);
   const [loading, setLoading] = useState(!initialLoadReady);
   const [refreshing, setRefreshing] = useState(false);
   const initRef = useRef(false);
@@ -117,6 +136,9 @@ export function SummaryPageClient({
     setCurrentWeek(payload.currentWeek);
     setWeeks(payload.weeks);
     setPackages(payload.packages);
+    setPackageTypeSummary(payload.packageTypeSummary);
+    setExpressBusinessSummary(payload.expressBusinessSummary);
+    setWorkerPayoutSummaries(payload.workerPayoutSummaries);
   }
 
   async function refresh(showLoader = false) {
@@ -193,6 +215,120 @@ export function SummaryPageClient({
             GHS {summary.totalRevenue.toFixed(2)}
           </p>
         </article>
+      </section>
+
+      <section className="mb-4 grid gap-4 lg:grid-cols-2">
+        <article className="glass-card overflow-hidden border border-slate-200">
+          <div className="border-b border-slate-200 px-4 py-3">
+            <h3 className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-500">
+              Package Type Breakdown
+            </h3>
+          </div>
+          <div className="grid gap-3 p-4 md:grid-cols-3">
+            <div className="rounded-xl border border-slate-200 bg-white/90 p-3">
+              <p className="text-xs uppercase tracking-wider text-slate-500">Wash Only</p>
+              <p className="mt-1 text-lg font-semibold text-slate-900">
+                {packageTypeSummary.wash_only_count}
+              </p>
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-white/90 p-3">
+              <p className="text-xs uppercase tracking-wider text-slate-500">
+                Normal Wash & Dry
+              </p>
+              <p className="mt-1 text-lg font-semibold text-slate-900">
+                {packageTypeSummary.normal_wash_dry_count}
+              </p>
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-white/90 p-3">
+              <p className="text-xs uppercase tracking-wider text-slate-500">
+                Express Wash & Dry
+              </p>
+              <p className="mt-1 text-lg font-semibold text-slate-900">
+                {packageTypeSummary.express_wash_dry_count}
+              </p>
+            </div>
+          </div>
+        </article>
+
+        <article className="glass-card overflow-hidden border border-slate-200">
+          <div className="border-b border-slate-200 px-4 py-3">
+            <h3 className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-500">
+              Express Split
+            </h3>
+          </div>
+          <div className="grid gap-3 p-4 md:grid-cols-2">
+            <div className="rounded-xl border border-slate-200 bg-white/90 p-3">
+              <p className="text-xs uppercase tracking-wider text-slate-500">Express Packages</p>
+              <p className="mt-1 text-lg font-semibold text-slate-900">
+                {expressBusinessSummary.express_package_count}
+              </p>
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-white/90 p-3">
+              <p className="text-xs uppercase tracking-wider text-slate-500">Express Weight</p>
+              <p className="mt-1 text-lg font-semibold text-slate-900">
+                {expressBusinessSummary.express_total_weight_kg.toFixed(2)} kg
+              </p>
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-white/90 p-3">
+              <p className="text-xs uppercase tracking-wider text-slate-500">Your Share</p>
+              <p className="mt-1 text-lg font-semibold text-slate-900">
+                GHS {expressBusinessSummary.your_express_share_ghs.toFixed(2)}
+              </p>
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-white/90 p-3">
+              <p className="text-xs uppercase tracking-wider text-slate-500">Partner Share</p>
+              <p className="mt-1 text-lg font-semibold text-slate-900">
+                GHS {expressBusinessSummary.partner_express_share_ghs.toFixed(2)}
+              </p>
+            </div>
+          </div>
+        </article>
+      </section>
+
+      <section className="mb-4 glass-card overflow-hidden border border-slate-200">
+        <div className="border-b border-slate-200 px-4 py-3">
+          <h3 className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-500">
+            Worker Payout Tracker
+          </h3>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[860px] text-sm">
+            <thead>
+              <tr className="border-b border-slate-200 bg-slate-50/80 text-left text-xs uppercase tracking-wider text-slate-500">
+                <th className="px-3 py-3">Worker</th>
+                <th className="px-3 py-3">Washing</th>
+                <th className="px-3 py-3">Drying Downstairs</th>
+                <th className="px-3 py-3">Removed From Line</th>
+                <th className="px-3 py-3">Dryer Operation</th>
+                <th className="px-3 py-3">Your Side</th>
+                <th className="px-3 py-3">Partner Side</th>
+                <th className="px-3 py-3">Grand Total</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-200">
+              {workerPayoutSummaries.map((summary) => (
+                <tr key={summary.worker_name} className="hover:bg-slate-50/60">
+                  <td className="px-3 py-3 font-medium text-slate-900">
+                    {getWorkerLabel(summary.worker_name)}
+                  </td>
+                  <td className="px-3 py-3">{summary.washing_count}</td>
+                  <td className="px-3 py-3">{summary.drying_downstairs_count}</td>
+                  <td className="px-3 py-3">{summary.removed_from_line_count}</td>
+                  <td className="px-3 py-3">{summary.dryer_operation_count}</td>
+                  <td className="px-3 py-3">
+                    GHS {summary.your_side_total_ghs.toFixed(2)}
+                  </td>
+                  <td className="px-3 py-3">
+                    GHS {summary.partner_side_total_ghs.toFixed(2)}
+                  </td>
+                  <td className="px-3 py-3 font-semibold text-slate-900">
+                    GHS {summary.grand_total_ghs.toFixed(2)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </section>
 
       <section className="mb-4 grid gap-4 lg:grid-cols-2">

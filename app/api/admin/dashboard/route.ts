@@ -6,6 +6,7 @@ import { handleApiError } from "@/lib/api";
 import { listPackages } from "@/lib/services/packages";
 import {
   getCurrentProcessingWeek,
+  getWeekOperationalSummary,
   listProcessingWeeks,
 } from "@/lib/services/weeks";
 import { PACKAGE_STATUSES } from "@/lib/types";
@@ -29,6 +30,7 @@ export async function GET(request: Request) {
       listProcessingWeeks(),
       listPackages({ search, status }),
     ]);
+    const operationalSummary = await getWeekOperationalSummary(currentWeek?.id ?? null);
 
     const remainingMs = currentWeek
       ? Math.max(0, new Date(currentWeek.end_at).getTime() - Date.now())
@@ -39,6 +41,9 @@ export async function GET(request: Request) {
       remainingSeconds: Math.floor(remainingMs / 1000),
       weeks,
       packages,
+      packageTypeSummary: operationalSummary.packageTypeSummary,
+      expressBusinessSummary: operationalSummary.expressBusinessSummary,
+      workerPayoutSummaries: operationalSummary.workerPayoutSummaries,
     });
   } catch (error) {
     return handleApiError(error);

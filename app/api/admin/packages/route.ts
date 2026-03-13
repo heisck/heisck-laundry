@@ -1,9 +1,15 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { z } from "zod";
 
 import { requireApiUser } from "@/lib/auth";
 import { handleApiError } from "@/lib/api";
-import { createPackage, listPackages } from "@/lib/services/packages";
+import { invalidateAdminPackagesCache } from "@/lib/services/admin-packages";
+import {
+  createPackage,
+  invalidatePackagesListCache,
+  listPackages,
+  sendCreatedPackageNotifications,
+} from "@/lib/services/packages";
 import { PACKAGE_STATUSES, PACKAGE_TYPES } from "@/lib/types";
 
 const createPackageSchema = z.object({
@@ -54,7 +60,22 @@ export async function POST(request: Request) {
       );
     }
 
-    const result = await createPackage(parsed.data, auth.user.id);
+    const result = await createPackage(parsed.data, auth.user.id, {
+      sendNotifications: false,
+    });
+    invalidateAdminPackagesCache();
+
+    after(async () => {
+      try {
+        await sendCreatedPackageNotifications(result.package, result.trackingUrl);
+      } catch (error) {
+        console.error("[packages] background create notification failed", error);
+      } finally {
+        invalidatePackagesListCache();
+        invalidateAdminPackagesCache();
+      }
+    });
+
     return NextResponse.json(result, { status: 201 });
   } catch (error) {
     return handleApiError(error);

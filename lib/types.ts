@@ -19,6 +19,26 @@ export type PackageType = (typeof PACKAGE_TYPES)[number];
 export const PROCESSING_WEEK_STATUSES = ["ACTIVE", "CLOSED"] as const;
 export type ProcessingWeekStatus = (typeof PROCESSING_WEEK_STATUSES)[number];
 
+export const LAUNDRY_WORKERS = [
+  "GIFTY_BLESSING",
+  "EUGEN",
+  "NOBODY",
+] as const;
+
+export type LaundryWorker = (typeof LAUNDRY_WORKERS)[number];
+
+export const PAYOUT_OWNER_SIDES = ["YOUR_SIDE", "PARTNER_SIDE"] as const;
+export type PayoutOwnerSide = (typeof PAYOUT_OWNER_SIDES)[number];
+
+export const PAYABLE_TASK_TYPES = [
+  "WASHING",
+  "DRYING_DOWNSTAIRS",
+  "REMOVED_FROM_LINE",
+  "DRYER_OPERATION",
+] as const;
+
+export type PayableTaskType = (typeof PAYABLE_TASK_TYPES)[number];
+
 export type NotificationTriggerType = "CREATED" | "STATUS_CHANGED";
 
 export interface ProcessingWeek {
@@ -78,6 +98,18 @@ export interface NotificationLogRecord {
   sent_at: string;
 }
 
+export interface PackageTaskAssignmentRecord {
+  id: string;
+  package_id: string;
+  week_id: string;
+  task_type: PayableTaskType;
+  worker_name: LaundryWorker;
+  owner_side: PayoutOwnerSide;
+  amount_ghs: number;
+  assigned_by: string;
+  assigned_at: string;
+}
+
 export interface WeekReportSummary {
   week_id: string;
   package_count: number;
@@ -95,6 +127,7 @@ export interface WeekReportRow {
   order_id: string;
   customer_name: string;
   room_number: string;
+  package_type: PackageType;
   clothes_count: number;
   total_weight_kg: number;
   total_price_ghs: number;
@@ -104,8 +137,51 @@ export interface WeekReportRow {
   created_at: string;
 }
 
+export interface WeekTaskEntry {
+  id: string;
+  week_id: string;
+  package_id: string;
+  order_id: string;
+  room_number: string;
+  package_type: PackageType;
+  task_type: PayableTaskType;
+  worker_name: LaundryWorker;
+  owner_side: PayoutOwnerSide;
+  amount_ghs: number;
+  assigned_at: string;
+}
+
+export interface PackageTypeSummary {
+  wash_only_count: number;
+  normal_wash_dry_count: number;
+  express_wash_dry_count: number;
+}
+
+export interface ExpressBusinessSummary {
+  express_package_count: number;
+  express_total_weight_kg: number;
+  your_express_share_ghs: number;
+  partner_express_share_ghs: number;
+  express_fixed_charge_total_ghs: number;
+}
+
+export interface WorkerPayoutSummary {
+  worker_name: LaundryWorker;
+  washing_count: number;
+  drying_downstairs_count: number;
+  removed_from_line_count: number;
+  dryer_operation_count: number;
+  your_side_total_ghs: number;
+  partner_side_total_ghs: number;
+  grand_total_ghs: number;
+}
+
 export interface WeekSnapshot {
   week: ProcessingWeek;
   report: WeekReportSummary;
   rows: WeekReportRow[];
+  task_entries: WeekTaskEntry[];
+  package_type_summary: PackageTypeSummary;
+  express_business_summary: ExpressBusinessSummary;
+  worker_payout_summaries: WorkerPayoutSummary[];
 }

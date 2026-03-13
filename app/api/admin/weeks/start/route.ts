@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { requireApiUser } from "@/lib/auth";
 import { handleApiError } from "@/lib/api";
+import { invalidateAdminPackagesCache } from "@/lib/services/admin-packages";
 import { startProcessingWeek } from "@/lib/services/weeks";
 
 const bodySchema = z.object({
@@ -26,6 +27,7 @@ export async function POST(request: Request) {
     }
 
     const week = await startProcessingWeek(parsed.data.label);
+    invalidateAdminPackagesCache();
     return NextResponse.json({ week }, { status: 201 });
   } catch (error) {
     return handleApiError(error);

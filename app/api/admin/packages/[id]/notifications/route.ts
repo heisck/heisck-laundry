@@ -2,9 +2,11 @@ import { NextResponse } from "next/server";
 
 import { requireApiUser } from "@/lib/auth";
 import { handleApiError } from "@/lib/api";
+import { invalidateAdminPackagesCache } from "@/lib/services/admin-packages";
 import {
   getPackageById,
   getPackageNotifications,
+  invalidatePackagesListCache,
 } from "@/lib/services/packages";
 
 interface Params {
@@ -37,6 +39,8 @@ export async function POST(_request: Request, { params }: Params) {
     const { id } = await params;
     const { retryPackageNotifications } = await import("@/lib/services/packages");
     const result = await retryPackageNotifications(id);
+    invalidatePackagesListCache();
+    invalidateAdminPackagesCache();
     return NextResponse.json(result);
   } catch (error) {
     return handleApiError(error);

@@ -11,11 +11,19 @@ import {
   getPackageTypeTurnaroundLabel,
   getSuggestedEtaDate,
 } from "@/lib/package-pricing";
+import {
+  getOwnerSideLabel,
+  getPayableTaskForStatus,
+  getTaskLabel,
+  getWorkerLabel,
+} from "@/lib/payouts";
 import { getStatusLabel } from "@/lib/status";
 import { formatAccraDateTime } from "@/lib/time";
 import {
+  LAUNDRY_WORKERS,
   PACKAGE_STATUSES,
   PACKAGE_TYPES,
+  type LaundryWorker,
   type PackageRecord,
   type PackageStatus,
   type PackageType,
@@ -65,13 +73,11 @@ interface NotificationAttempt {
   attemptedAt?: string;
 }
 
-interface CurrentWeekPayload {
+interface PackagesBootstrapPayload {
   week: ProcessingWeek | null;
-  remainingSeconds: number;
-}
-
-interface PackagesPayload {
   packages: PackageRecord[];
+  stale: boolean;
+  cachedAt: string | null;
 }
 
 type BusyAction =
@@ -85,6 +91,8 @@ type PendingStatusUpdate = {
   packageId: string;
   nextStatus: PackageStatus;
 } | null;
+type StatusDrafts = Record<string, PackageStatus>;
+type WorkerDrafts = Record<string, LaundryWorker>;
 
 const STATUS_ORDER: Record<PackageStatus, number> = {
   RECEIVED: 0,
@@ -178,9 +186,13 @@ export function PackagesPageClient({
   const [currentWeek, setCurrentWeek] = useState<ProcessingWeek | null>(
     initialCurrentWeek,
   );
-  const [packages, setPackages] = useState<PackageRecord[]>(initialPackages);
+  const [allPackages, setAllPackages] = useState<PackageRecord[]>(initialPackages);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<PackageStatus | "ALL">("ALL");
+  const [appliedSearch, setAppliedSearch] = useState("");
+  const [appliedStatusFilter, setAppliedStatusFilter] = useState<
+    PackageStatus | "ALL"
+  >("ALL");
   const [createForm, setCreateForm] = useState<CreatePackageForm>({
     ...initialPackageForm,
     etaAt: toLocalDatetimeValue(getSuggestedEtaDate("NORMAL_WASH_DRY")),
@@ -194,6 +206,8 @@ export function PackagesPageClient({
   const [pendingSmsRetryPackageId, setPendingSmsRetryPackageId] = useState<
     string | null
   >(null);
+  const [statusDrafts, setStatusDrafts] = useState<StatusDrafts>({});
+  const [workerDrafts, setWorkerDrafts] = useState<WorkerDrafts>({});
   const initRef = useRef(false);
 
   const isBusy = busyAction !== null;
@@ -213,14 +227,25 @@ export function PackagesPageClient({
     return `${remainingHours}h ${remainingMinutes}m remaining`;
   }, [currentWeek]);
 
+  const visiblePackages = useMemo(() => {
+    return allPackages.filter((record) => {
+      const matchesStatus =
+        appliedStatusFilter === "ALL" || record.status === appliedStatusFilter;
+      return matchesStatus && matchesSearch(record, appliedSearch);
+    });
+  }, [allPackages, appliedSearch, appliedStatusFilter]);
+
   const displayedMetrics = useMemo(() => {
-    const packageCount = packages.length;
-    const totalKg = packages.reduce((sum, item) => sum + item.total_weight_kg, 0);
-    const totalRevenue = packages.reduce(
+    const packageCount = visiblePackages.length;
+    const totalKg = visiblePackages.reduce(
+      (sum, item) => sum + item.total_weight_kg,
+      0,
+    );
+    const totalRevenue = visiblePackages.reduce(
       (sum, item) => sum + item.total_price_ghs,
       0,
     );
-    const readyCount = packages.filter(
+    const readyCount = visiblePackages.filter(
       (item) => item.status === "READY_FOR_PICKUP",
     ).length;
 
@@ -230,47 +255,30 @@ export function PackagesPageClient({
       totalRevenue,
       readyCount,
     };
-  }, [packages]);
+  }, [visiblePackages]);
 
   const pricePreview = useMemo(() => {
     const weightKg = Number(createForm.totalWeightKg);
     return calculatePackagePricing(weightKg, createForm.packageType);
   }, [createForm.packageType, createForm.totalWeightKg]);
 
-  async function loadPackages(query?: {
-    search?: string;
-    status?: PackageStatus | "ALL";
-  }) {
-    const q = query?.search ?? search.trim();
-    const status = query?.status ?? statusFilter;
-    const params = new URLSearchParams();
-    if (q) {
-      params.set("q", q);
-    }
-    if (status !== "ALL") {
-      params.set("status", status);
-    }
-
-    const queryString = params.toString();
-    const response = await fetchWithTimeout(
-      `/api/admin/packages${queryString ? `?${queryString}` : ""}`,
-      { cache: "no-store" },
-    );
-    const payload = await parseApiResponse<PackagesPayload>(response);
-    setPackages(payload.packages);
-  }
-
-  async function loadPackagesAndWeek(query?: {
-    search?: string;
-    status?: PackageStatus | "ALL";
-  }) {
-    const currentWeekResponse = await fetchWithTimeout("/api/admin/weeks/current", {
+  async function loadBootstrap() {
+    const response = await fetchWithTimeout("/api/admin/packages/bootstrap", {
       cache: "no-store",
     });
-    const currentWeekPayload =
-      await parseApiResponse<CurrentWeekPayload>(currentWeekResponse);
-    setCurrentWeek(currentWeekPayload.week);
-    await loadPackages(query);
+    const payload = await parseApiResponse<PackagesBootstrapPayload>(response);
+    setCurrentWeek(payload.week);
+    setAllPackages(payload.packages);
+
+    if (payload.stale) {
+      pushToast(
+        "warning",
+        "Showing cached package data",
+        payload.cachedAt
+          ? `Latest successful load: ${formatAccraDateTime(payload.cachedAt)}`
+          : "The latest live refresh failed.",
+      );
+    }
   }
 
   async function refreshAll(showLoader = false) {
@@ -279,7 +287,7 @@ export function PackagesPageClient({
     }
     setBusyAction("refresh");
     try {
-      await loadPackagesAndWeek();
+      await loadBootstrap();
     } catch (error) {
       pushToast(
         "error",
@@ -347,16 +355,18 @@ export function PackagesPageClient({
         qrCodeDataUrl: payload.qrCodeDataUrl,
       });
       setQrFullscreenOpen(true);
-      setPackages((prev) => {
-        const includeByStatus =
-          statusFilter === "ALL" || payload.package.status === statusFilter;
-        const includeBySearch = matchesSearch(payload.package, search.trim());
-        if (!includeByStatus || !includeBySearch) {
-          return prev;
-        }
-        return [payload.package, ...prev];
-      });
+      setAllPackages((prev) => [
+        payload.package,
+        ...prev.filter((item) => item.id !== payload.package.id),
+      ]);
       pushToast("success", "Package created", payload.package.order_id);
+
+      if (
+        payload.notifications.length === 0 &&
+        payload.package.last_delivery_state === "PENDING"
+      ) {
+        pushToast("info", "Package created", "SMS is sending in the background.");
+      }
 
       const failedNotifications = payload.notifications.filter((item) => !item.ok);
       if (failedNotifications.length > 0) {
@@ -379,14 +389,30 @@ export function PackagesPageClient({
     }
   }
 
-  async function handleStatusChange(packageId: string, nextStatus: PackageStatus) {
+  function getSelectedStatus(pkg: PackageRecord): PackageStatus {
+    if (pendingStatusUpdate?.packageId === pkg.id) {
+      return pendingStatusUpdate.nextStatus;
+    }
+
+    return statusDrafts[pkg.id] ?? pkg.status;
+  }
+
+  function getSelectedWorker(packageId: string): LaundryWorker {
+    return workerDrafts[packageId] ?? "NOBODY";
+  }
+
+  async function handleStatusChange(
+    packageId: string,
+    nextStatus: PackageStatus,
+    workerName: LaundryWorker,
+  ) {
     setBusyAction("updateStatus");
     setPendingStatusUpdate({ packageId, nextStatus });
     try {
       const response = await fetchWithTimeout(`/api/admin/packages/${packageId}/status`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: nextStatus }),
+        body: JSON.stringify({ status: nextStatus, workerName }),
       });
       const payload = await parseApiResponse<{
         package: PackageRecord;
@@ -394,20 +420,34 @@ export function PackagesPageClient({
         notifications: NotificationAttempt[];
       }>(response);
 
-      setPackages((prev) => {
+      setAllPackages((prev) => {
         const updated = prev.map((row) =>
           row.id === packageId ? payload.package : row,
         );
-        return statusFilter === "ALL"
-          ? updated
-          : updated.filter((item) => item.status === statusFilter);
+        return updated;
       });
+      setStatusDrafts((prev) => ({
+        ...prev,
+        [packageId]: payload.package.status,
+      }));
+      setWorkerDrafts((prev) => ({
+        ...prev,
+        [packageId]: "NOBODY",
+      }));
 
       pushToast(
         "success",
         payload.skipped ? "Status unchanged" : "Status updated",
         payload.package.order_id,
       );
+
+      if (
+        !payload.skipped &&
+        payload.notifications.length === 0 &&
+        payload.package.last_delivery_state === "PENDING"
+      ) {
+        pushToast("info", "Status updated", "SMS is sending in the background.");
+      }
 
       const failedNotifications = payload.notifications.filter((item) => !item.ok);
       if (failedNotifications.length > 0) {
@@ -435,10 +475,8 @@ export function PackagesPageClient({
     event.preventDefault();
     setBusyAction("search");
     try {
-      await loadPackages({
-        search: search.trim(),
-        status: statusFilter,
-      });
+      setAppliedSearch(search.trim());
+      setAppliedStatusFilter(statusFilter);
       pushToast("info", "Filters applied");
     } catch (error) {
       pushToast(
@@ -466,7 +504,7 @@ export function PackagesPageClient({
         notifications: NotificationAttempt[];
       }>(response);
 
-      setPackages((prev) =>
+      setAllPackages((prev) =>
         prev.map((row) => (row.id === packageId ? payload.package : row)),
       );
 
@@ -834,7 +872,7 @@ export function PackagesPageClient({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200/80">
-              {packages.map((pkg) => (
+              {visiblePackages.map((pkg) => (
                 <tr key={pkg.id} className="text-slate-700 transition hover:bg-slate-50/60">
                   <td className="px-3 py-3 font-semibold text-slate-900">{pkg.order_id}</td>
                   <td className="px-3 py-3">{pkg.customer_name}</td>
@@ -853,32 +891,81 @@ export function PackagesPageClient({
                     </span>
                   </td>
                   <td className="px-3 py-3">
-                    {pendingStatusUpdate?.packageId === pkg.id ? (
-                      <p className="mb-1 text-xs font-medium text-blue-700">
-                        Updating to {getStatusLabel(pendingStatusUpdate.nextStatus)}...
-                      </p>
-                    ) : null}
-                    <select
-                      value={
-                        pendingStatusUpdate?.packageId === pkg.id
-                          ? pendingStatusUpdate.nextStatus
-                          : pkg.status
-                      }
-                      disabled={isBusy || pkg.status === "PICKED_UP"}
-                      onChange={(event) =>
-                        void handleStatusChange(
-                          pkg.id,
-                          event.target.value as PackageStatus,
-                        )
-                      }
-                      className="input-control py-2 text-xs"
-                    >
-                      {statusOptionsFor(pkg.status).map((status) => (
-                        <option key={status} value={status}>
-                          {getStatusLabel(status)}
-                        </option>
-                      ))}
-                    </select>
+                    {(() => {
+                      const selectedStatus = getSelectedStatus(pkg);
+                      const selectedWorker = getSelectedWorker(pkg.id);
+                      const payableTask = getPayableTaskForStatus(
+                        pkg.package_type,
+                        selectedStatus,
+                      );
+                      const needsWorker = selectedStatus !== pkg.status && payableTask !== null;
+
+                      return (
+                        <>
+                          {pendingStatusUpdate?.packageId === pkg.id ? (
+                            <p className="mb-1 text-xs font-medium text-blue-700">
+                              Updating to {getStatusLabel(pendingStatusUpdate.nextStatus)}...
+                            </p>
+                          ) : null}
+                          <select
+                            value={selectedStatus}
+                            disabled={isBusy || pkg.status === "PICKED_UP"}
+                            onChange={(event) =>
+                              setStatusDrafts((prev) => ({
+                                ...prev,
+                                [pkg.id]: event.target.value as PackageStatus,
+                              }))
+                            }
+                            className="input-control py-2 text-xs"
+                          >
+                            {statusOptionsFor(pkg.status).map((status) => (
+                              <option key={status} value={status}>
+                                {getStatusLabel(status)}
+                              </option>
+                            ))}
+                          </select>
+                          {needsWorker ? (
+                            <div className="mt-2 space-y-2 rounded-xl border border-slate-200 bg-slate-50/80 p-2">
+                              <p className="text-xs text-slate-600">
+                                {getTaskLabel(payableTask.taskType)} •{" "}
+                                {getOwnerSideLabel(payableTask.ownerSide)}
+                              </p>
+                              <select
+                                value={selectedWorker}
+                                disabled={isBusy}
+                                onChange={(event) =>
+                                  setWorkerDrafts((prev) => ({
+                                    ...prev,
+                                    [pkg.id]: event.target.value as LaundryWorker,
+                                  }))
+                                }
+                                className="input-control py-2 text-xs"
+                              >
+                                {LAUNDRY_WORKERS.map((worker) => (
+                                  <option key={worker} value={worker}>
+                                    {getWorkerLabel(worker)}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          ) : null}
+                          {selectedStatus !== pkg.status ? (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                void handleStatusChange(pkg.id, selectedStatus, selectedWorker)
+                              }
+                              disabled={isBusy}
+                              className="btn btn-secondary mt-2 w-full"
+                            >
+                              {pendingStatusUpdate?.packageId === pkg.id
+                                ? "Updating..."
+                                : "Apply Status"}
+                            </button>
+                          ) : null}
+                        </>
+                      );
+                    })()}
                   </td>
                   <td className="px-3 py-3">
                     {pendingStatusUpdate?.packageId === pkg.id ? (
@@ -903,7 +990,7 @@ export function PackagesPageClient({
                   </td>
                 </tr>
               ))}
-              {packages.length === 0 ? (
+              {visiblePackages.length === 0 ? (
                 <tr>
                   <td colSpan={9} className="px-3 py-8 text-center text-slate-500">
                     No packages match the current filters.
