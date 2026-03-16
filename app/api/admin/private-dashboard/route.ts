@@ -18,6 +18,7 @@ export async function GET() {
   const cookieStore = await cookies();
   const hasPrivateAccess = await isPrivateAccessCookieValueValid(
     cookieStore.get(PRIVATE_ACCESS_COOKIE_NAME)?.value,
+    auth.user.id,
   );
 
   if (!hasPrivateAccess) {

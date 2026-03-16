@@ -1,5 +1,4 @@
 import Image from "next/image";
-import Link from "next/link";
 
 import { getPackageTypeLabel } from "@/lib/package-pricing";
 import { getDb, withDbConnectionRetry } from "@/lib/db";
@@ -242,13 +241,15 @@ export default async function TrackPackagePage({ params }: Params) {
               </span>
             </span>
             {record.payment_status !== "PAID" ? (
-              <Link
-                href={`/api/track/${token}/pay`}
-                className="btn btn-primary min-h-[2.45rem] px-3 text-[0.72rem] sm:min-h-[2.9rem] sm:px-4 sm:text-[0.82rem]"
-              >
-                <span className="sm:hidden">Pay Now</span>
-                <span className="hidden sm:inline">Pay now with Paystack</span>
-              </Link>
+              <form action={`/api/track/${token}/pay`} method="post" className="shrink-0">
+                <button
+                  type="submit"
+                  className="btn btn-primary min-h-[2.45rem] px-3 text-[0.72rem] sm:min-h-[2.9rem] sm:px-4 sm:text-[0.82rem]"
+                >
+                  <span className="sm:hidden">Pay Now</span>
+                  <span className="hidden sm:inline">Pay now with Paystack</span>
+                </button>
+              </form>
             ) : null}
           </>
         }

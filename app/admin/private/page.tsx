@@ -21,6 +21,7 @@ export default async function AdminPrivatePage() {
   const cookieStore = await cookies();
   const hasAccess = await isPrivateAccessCookieValueValid(
     cookieStore.get(PRIVATE_ACCESS_COOKIE_NAME)?.value,
+    user.id,
   );
 
   if (!hasAccess) {

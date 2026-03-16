@@ -16,12 +16,24 @@ interface PrivateAccessSettingsCacheEntry {
   passwordHash: string;
 }
 
+interface PrivateAccessAttemptCacheEntry {
+  firstAttemptAtMs: number;
+  failedCount: number;
+  lockedUntilMs: number | null;
+}
+
 declare global {
   var __privateAccessSettingsCache: PrivateAccessSettingsCacheEntry | undefined;
+  var __privateAccessAttemptCache:
+    | Map<string, PrivateAccessAttemptCacheEntry>
+    | undefined;
 }
 
 const PRIVATE_ACCESS_SETTINGS_CACHE_TTL_MS = 30000;
 const PASSWORD_HASH_PREFIX = "scrypt";
+const PRIVATE_ACCESS_MAX_FAILED_ATTEMPTS = 5;
+const PRIVATE_ACCESS_ATTEMPT_WINDOW_MS = 10 * 60 * 1000;
+const PRIVATE_ACCESS_LOCKOUT_MS = 15 * 60 * 1000;
 
 function setCachedPrivateAccessPasswordHash(passwordHash: string) {
   globalThis.__privateAccessSettingsCache = {
@@ -45,9 +57,41 @@ function getCachedPrivateAccessPasswordHash(): string | null {
   return cached.passwordHash;
 }
 
-function createPrivateAccessCookieValueFromHash(passwordHash: string): string {
+function getPrivateAccessAttemptCache(): Map<string, PrivateAccessAttemptCacheEntry> {
+  if (!globalThis.__privateAccessAttemptCache) {
+    globalThis.__privateAccessAttemptCache = new Map();
+  }
+
+  return globalThis.__privateAccessAttemptCache;
+}
+
+function clearStalePrivateAccessAttempt(
+  actorKey: string,
+  nowMs: number,
+): PrivateAccessAttemptCacheEntry | null {
+  const entry = getPrivateAccessAttemptCache().get(actorKey);
+  if (!entry) {
+    return null;
+  }
+
+  const lockExpired =
+    entry.lockedUntilMs !== null && entry.lockedUntilMs <= nowMs;
+  const windowExpired = nowMs - entry.firstAttemptAtMs > PRIVATE_ACCESS_ATTEMPT_WINDOW_MS;
+
+  if (lockExpired || windowExpired) {
+    getPrivateAccessAttemptCache().delete(actorKey);
+    return null;
+  }
+
+  return entry;
+}
+
+function createPrivateAccessCookieValueFromHash(
+  passwordHash: string,
+  userId: string,
+): string {
   return createHash("sha256")
-    .update(`private-access:${passwordHash}`)
+    .update(`private-access:${userId}:${passwordHash}`)
     .digest("hex");
 }
 
@@ -93,6 +137,10 @@ export function invalidatePrivateAccessSettingsCache() {
   globalThis.__privateAccessSettingsCache = undefined;
 }
 
+export function getPrivateAccessActorKey(userId: string): string {
+  return `private-access:${userId}`;
+}
+
 export async function getPrivateAccessPasswordHash(): Promise<string> {
   const cached = getCachedPrivateAccessPasswordHash();
   if (cached) {
@@ -131,12 +179,13 @@ export async function isPrivateAccessPassword(password: string): Promise<boolean
 
 export async function isPrivateAccessCookieValueValid(
   value: string | undefined,
+  userId: string,
 ): Promise<boolean> {
   if (!value) {
     return false;
   }
 
-  const expectedValue = await getPrivateAccessCookieValue();
+  const expectedValue = await getPrivateAccessCookieValue(userId);
   const expected = Buffer.from(expectedValue);
   const provided = Buffer.from(value);
 
@@ -147,9 +196,9 @@ export async function isPrivateAccessCookieValueValid(
   return timingSafeEqual(expected, provided);
 }
 
-export async function getPrivateAccessCookieValue(): Promise<string> {
+export async function getPrivateAccessCookieValue(userId: string): Promise<string> {
   const passwordHash = await getPrivateAccessPasswordHash();
-  return createPrivateAccessCookieValueFromHash(passwordHash);
+  return createPrivateAccessCookieValueFromHash(passwordHash, userId);
 }
 
 export async function updatePrivateAccessPassword(
@@ -174,7 +223,66 @@ export async function updatePrivateAccessPassword(
   });
 
   setCachedPrivateAccessPasswordHash(passwordHash);
-  return createPrivateAccessCookieValueFromHash(passwordHash);
+  return createPrivateAccessCookieValueFromHash(passwordHash, userId);
+}
+
+export function getPrivateAccessRateLimitState(actorKey: string): {
+  allowed: boolean;
+  retryAfterSeconds: number | null;
+} {
+  const nowMs = Date.now();
+  const entry = clearStalePrivateAccessAttempt(actorKey, nowMs);
+
+  if (!entry || entry.lockedUntilMs === null) {
+    return { allowed: true, retryAfterSeconds: null };
+  }
+
+  return {
+    allowed: false,
+    retryAfterSeconds: Math.max(
+      1,
+      Math.ceil((entry.lockedUntilMs - nowMs) / 1000),
+    ),
+  };
+}
+
+export function recordPrivateAccessFailure(actorKey: string): {
+  locked: boolean;
+  retryAfterSeconds: number | null;
+} {
+  const attempts = getPrivateAccessAttemptCache();
+  const nowMs = Date.now();
+  const existing = clearStalePrivateAccessAttempt(actorKey, nowMs);
+
+  const nextEntry: PrivateAccessAttemptCacheEntry = existing
+    ? {
+        firstAttemptAtMs: existing.firstAttemptAtMs,
+        failedCount: existing.failedCount + 1,
+        lockedUntilMs: existing.lockedUntilMs,
+      }
+    : {
+        firstAttemptAtMs: nowMs,
+        failedCount: 1,
+        lockedUntilMs: null,
+      };
+
+  if (nextEntry.failedCount >= PRIVATE_ACCESS_MAX_FAILED_ATTEMPTS) {
+    nextEntry.lockedUntilMs = nowMs + PRIVATE_ACCESS_LOCKOUT_MS;
+  }
+
+  attempts.set(actorKey, nextEntry);
+
+  return {
+    locked: nextEntry.lockedUntilMs !== null,
+    retryAfterSeconds:
+      nextEntry.lockedUntilMs === null
+        ? null
+        : Math.max(1, Math.ceil((nextEntry.lockedUntilMs - nowMs) / 1000)),
+  };
+}
+
+export function clearPrivateAccessFailures(actorKey: string) {
+  getPrivateAccessAttemptCache().delete(actorKey);
 }
 
 export function getPrivateAccessCookieOptions() {
