@@ -43,13 +43,8 @@ function SkeletonSummaryPage({ userEmail }: { userEmail: string }) {
       title="Summary"
       subtitle="Review operations here and use /admin/private directly for protected totals and exports."
     >
-      <section className="grid gap-4 md:grid-cols-4">
-        {Array.from({ length: 4 }).map((_, index) => (
-          <div key={index} className="skeleton-card h-24" />
-        ))}
-      </section>
-      <section className="mt-4 grid gap-4 lg:grid-cols-2">
-        <div className="skeleton-card h-[440px]" />
+      <section className="grid gap-4">
+        <div className="skeleton-card h-[220px]" />
         <div className="skeleton-card h-[440px]" />
       </section>
     </AdminShell>
@@ -69,14 +64,14 @@ export function SummaryPageClient({
 }: SummaryPageClientProps) {
   const { toasts, dismissToast, pushToast } = useToasts();
 
-  const [currentWeek, setCurrentWeek] = useState<ProcessingWeek | null>(
+  const [, setCurrentWeek] = useState<ProcessingWeek | null>(
     initialCurrentWeek,
   );
   const [weeks, setWeeks] = useState<ProcessingWeekWithReport[]>(initialWeeks);
   const [activePackageCount, setActivePackageCount] = useState(
     initialActivePackageCount,
   );
-  const [expressPackageCount, setExpressPackageCount] = useState(
+  const [, setExpressPackageCount] = useState(
     initialExpressPackageCount,
   );
   const [packageTypeSummary, setPackageTypeSummary] =
@@ -164,35 +159,62 @@ export function SummaryPageClient({
       userEmail={userEmail}
       title="Summary"
       subtitle="Review operations here and use /admin/private directly for protected totals and exports."
+      headerExtras={
+        <>
+          <button
+            type="button"
+            onClick={() => void refresh()}
+            disabled={refreshing}
+            className="admin-icon-btn"
+            aria-label="Refresh summary"
+            title="Refresh summary"
+          >
+            <svg
+              viewBox="0 0 20 20"
+              fill="none"
+              className={refreshing ? "h-4 w-4 animate-spin text-slate-700" : "h-4 w-4 text-slate-700"}
+              aria-hidden="true"
+            >
+              <path
+                d="M16.5 10A6.5 6.5 0 0 1 5.41 14.59"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+              />
+              <path
+                d="M4.5 10A6.5 6.5 0 0 1 14.59 5.41"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+              />
+              <path
+                d="M6.1 14.75H5v-1.1"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+              <path
+                d="M13.9 5.25H15v1.1"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </button>
+          <div className="inline-flex min-h-[2.9rem] items-center gap-2 rounded-full border border-slate-200 bg-white/92 px-3 py-2 shadow-[0_8px_18px_rgba(20,32,51,0.06)]">
+            <span className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+              Packages
+            </span>
+            <span className="font-display text-lg font-semibold text-slate-950">
+              {summary.totalPackages}
+            </span>
+          </div>
+        </>
+      }
     >
       <Toaster toasts={toasts} dismiss={dismissToast} />
-
-      <section className="mb-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <article className="metric-tile px-5 py-5">
-          <p className="label-kicker">Closed Weeks</p>
-          <p className="font-display mt-3 text-3xl font-semibold text-slate-950">
-            {summary.closedWeekCount}
-          </p>
-        </article>
-        <article className="metric-tile px-5 py-5">
-          <p className="label-kicker">Total Packages</p>
-          <p className="font-display mt-3 text-3xl font-semibold text-slate-950">
-            {summary.totalPackages}
-          </p>
-        </article>
-        <article className="metric-tile px-5 py-5">
-          <p className="label-kicker">Active Packages</p>
-          <p className="font-display mt-3 text-3xl font-semibold text-slate-950">
-            {summary.activePackageCount}
-          </p>
-        </article>
-        <article className="metric-tile px-5 py-5">
-          <p className="label-kicker">Express Orders</p>
-          <p className="font-display mt-3 text-3xl font-semibold text-slate-950">
-            {expressPackageCount}
-          </p>
-        </article>
-      </section>
 
       <section className="mb-5">
         <article className="glass-card overflow-hidden">
@@ -339,44 +361,6 @@ export function SummaryPageClient({
             </tbody>
           </table>
         </div>
-      </section>
-
-      <section className="mb-5">
-        <article className="glass-card overflow-hidden">
-          <div className="border-b border-slate-200/70 px-5 py-4">
-            <p className="label-kicker">Active Week Snapshot</p>
-          </div>
-          <div className="space-y-4 p-5">
-            <div className="metric-tile p-4">
-              <p className="label-kicker">Active Week</p>
-              <p className="mt-2 text-lg font-semibold text-slate-950">
-                {currentWeek?.label ?? "No active week"}
-              </p>
-            </div>
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="metric-tile p-4">
-                <p className="label-kicker">Packages</p>
-                <p className="font-display mt-2 text-2xl font-semibold text-slate-950">
-                  {summary.activePackageCount}
-                </p>
-              </div>
-              <div className="metric-tile p-4">
-                <p className="label-kicker">Status</p>
-                <p className="font-display mt-2 text-2xl font-semibold text-slate-950">
-                  {currentWeek?.status ?? "No active week"}
-                </p>
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={() => void refresh()}
-              disabled={refreshing}
-              className="btn btn-secondary"
-            >
-              {refreshing ? "Refreshing..." : "Refresh Summary"}
-            </button>
-          </div>
-        </article>
       </section>
 
       <section className="glass-card overflow-hidden">
