@@ -23,6 +23,16 @@ interface DashboardPayload {
   expressBusinessSummary: ExpressBusinessSummary;
 }
 
+interface PrivatePageClientProps {
+  userEmail: string;
+  initialCurrentWeek: ProcessingWeek | null;
+  initialWeeks: ProcessingWeekWithReport[];
+  initialPackages: PackageRecord[];
+  initialExpressBusinessSummary: ExpressBusinessSummary | null;
+  initialLoadReady: boolean;
+  initialLoadError: string | null;
+}
+
 const EMPTY_EXPRESS_BUSINESS_SUMMARY: ExpressBusinessSummary = {
   express_package_count: 0,
   express_total_weight_kg: 0,
@@ -100,16 +110,28 @@ function PrivateHeaderExtras({
   );
 }
 
-export function PrivatePageClient({ userEmail }: { userEmail: string }) {
+export function PrivatePageClient({
+  userEmail,
+  initialCurrentWeek,
+  initialWeeks,
+  initialPackages,
+  initialExpressBusinessSummary,
+  initialLoadReady,
+  initialLoadError,
+}: PrivatePageClientProps) {
   const { toasts, dismissToast, pushToast } = useToasts();
 
-  const [currentWeek, setCurrentWeek] = useState<ProcessingWeek | null>(null);
-  const [weeks, setWeeks] = useState<ProcessingWeekWithReport[]>([]);
-  const [packages, setPackages] = useState<PackageRecord[]>([]);
+  const [currentWeek, setCurrentWeek] = useState<ProcessingWeek | null>(
+    initialCurrentWeek,
+  );
+  const [weeks, setWeeks] = useState<ProcessingWeekWithReport[]>(initialWeeks);
+  const [packages, setPackages] = useState<PackageRecord[]>(initialPackages);
   const [expressBusinessSummary, setExpressBusinessSummary] =
-    useState<ExpressBusinessSummary>(EMPTY_EXPRESS_BUSINESS_SUMMARY);
+    useState<ExpressBusinessSummary>(
+      initialExpressBusinessSummary ?? EMPTY_EXPRESS_BUSINESS_SUMMARY,
+    );
   const [startWeekLabel, setStartWeekLabel] = useState("");
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!initialLoadReady);
   const [refreshing, setRefreshing] = useState(false);
   const [startingWeek, setStartingWeek] = useState(false);
   const [closingWeek, setClosingWeek] = useState(false);
@@ -274,9 +296,16 @@ export function PrivatePageClient({ userEmail }: { userEmail: string }) {
       return;
     }
     initRef.current = true;
-    void refresh(true);
+
+    if (initialLoadError) {
+      pushToast("error", "Private page load failed", initialLoadError);
+    }
+
+    if (!initialLoadReady) {
+      void refresh(true);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [initialLoadError, initialLoadReady]);
 
   if (loading) {
     return <SkeletonPrivatePage userEmail={userEmail} />;

@@ -7,12 +7,7 @@ import {
   isPrivateAccessCookieValueValid,
   PRIVATE_ACCESS_COOKIE_NAME,
 } from "@/lib/private-access";
-import { listPackages } from "@/lib/services/packages";
-import {
-  getCurrentProcessingWeek,
-  getWeekOperationalSummary,
-  listProcessingWeeks,
-} from "@/lib/services/weeks";
+import { getPrivateDashboardData } from "@/lib/services/private-dashboard";
 
 export async function GET() {
   const auth = await requireApiUser();
@@ -33,19 +28,8 @@ export async function GET() {
   }
 
   try {
-    const [currentWeek, weeks, packages] = await Promise.all([
-      getCurrentProcessingWeek(),
-      listProcessingWeeks(),
-      listPackages(),
-    ]);
-    const operationalSummary = await getWeekOperationalSummary(currentWeek?.id ?? null);
-
-    return NextResponse.json({
-      currentWeek,
-      weeks,
-      packages,
-      expressBusinessSummary: operationalSummary.expressBusinessSummary,
-    });
+    const payload = await getPrivateDashboardData();
+    return NextResponse.json(payload);
   } catch (error) {
     return handleApiError(error);
   }
