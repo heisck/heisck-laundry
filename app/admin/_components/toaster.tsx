@@ -79,7 +79,7 @@ export function Toaster({
   return (
     <aside
       aria-live="polite"
-      className="pointer-events-none fixed right-4 top-4 z-50 flex w-[min(92vw,26rem)] flex-col gap-3"
+      className="pointer-events-none fixed inset-x-3 bottom-3 top-auto z-50 flex w-auto flex-col gap-3 sm:inset-x-auto sm:right-4 sm:top-[calc(env(safe-area-inset-top)+1rem)] sm:bottom-auto sm:w-[min(92vw,26rem)]"
     >
       {toasts.map((toast) => (
         <div
@@ -117,9 +117,10 @@ export function Toaster({
             <button
               type="button"
               onClick={() => dismiss(toast.id)}
-              className="rounded-full px-3 py-1.5 text-xs font-semibold text-slate-500 hover:bg-slate-100"
+              aria-label="Dismiss notification"
+              className="inline-flex h-8 w-8 items-center justify-center rounded-full text-base font-semibold text-slate-500 transition hover:bg-slate-100 hover:text-slate-700"
             >
-              Close
+              <span aria-hidden="true">&times;</span>
             </button>
           </div>
           <div

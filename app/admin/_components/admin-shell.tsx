@@ -66,11 +66,11 @@ export function AdminShell({
   return (
     <div className="min-h-screen bg-transparent">
       <div className="mx-auto max-w-[1600px] px-4 py-4 md:px-6 lg:px-8">
-        <header className="admin-topbar mb-5 flex flex-wrap items-center gap-3 px-4 py-3 md:px-5">
+        <header className="admin-topbar mb-5 flex items-center gap-2 px-4 py-3 md:gap-3 md:px-5">
           <div className="flex min-w-0 items-center gap-3">
             <Link
               href="/admin/packages"
-              className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-full border border-cyan-200 bg-white shadow-sm"
+              className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full border border-cyan-200 bg-white shadow-sm sm:h-16 sm:w-16"
             >
               <Image
                 src="/web-app-manifest-192x192.png"
@@ -83,7 +83,7 @@ export function AdminShell({
             </Link>
           </div>
 
-          <div className="ml-auto flex flex-wrap items-center justify-end gap-2 md:gap-3">
+          <div className="ml-auto flex shrink-0 items-center justify-end gap-1.5 sm:gap-2 md:gap-3">
             <div className="relative">
               <button
                 type="button"

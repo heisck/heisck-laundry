@@ -1,13 +1,11 @@
-import { requirePageUser } from "@/lib/auth";
 import type {
   PackageTypeSummary,
   WorkerPayoutSummary,
 } from "@/lib/types";
 
-import { SummaryPageClient } from "./summary-page-client";
+import { SummaryPageClient } from "../../summary/summary-page-client";
 
-export default async function AdminSummaryPage() {
-  const user = await requirePageUser();
+export default function AdminSummaryPage() {
   const initialPackageTypeSummary: PackageTypeSummary = {
     wash_only_count: 0,
     normal_wash_dry_count: 0,
@@ -17,7 +15,6 @@ export default async function AdminSummaryPage() {
 
   return (
     <SummaryPageClient
-      userEmail={user.email ?? "admin"}
       initialCurrentWeek={null}
       initialWeeks={[]}
       initialActivePackageCount={0}

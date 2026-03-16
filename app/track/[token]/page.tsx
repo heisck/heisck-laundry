@@ -69,9 +69,9 @@ function TrackingHeader({
   rightContent?: React.ReactNode;
 }) {
   return (
-    <header className="admin-topbar mb-6 flex flex-wrap items-center gap-3 px-4 py-3 md:px-5">
+    <header className="admin-topbar mb-6 flex items-center gap-2 px-4 py-3 md:gap-3 md:px-5">
       <div className="flex min-w-0 items-center gap-3">
-        <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-full border border-cyan-200 bg-white shadow-sm">
+        <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full border border-cyan-200 bg-white shadow-sm sm:h-16 sm:w-16">
           <Image
             src="/web-app-manifest-192x192.png"
             alt="Heisck Laundry logo"
@@ -84,7 +84,7 @@ function TrackingHeader({
       </div>
 
       {rightContent ? (
-        <div className="ml-auto flex flex-wrap items-center justify-end gap-2 md:gap-3">
+        <div className="ml-auto flex shrink-0 items-center justify-end gap-1.5 sm:gap-2 md:gap-3">
           {rightContent}
         </div>
       ) : null}
@@ -136,6 +136,38 @@ function getPaymentLabel(status: PaymentStatus, source: PaymentSource): string {
 
   if (status === "PENDING") {
     return "Pending Payment";
+  }
+
+  return "Not Paid";
+}
+
+function getCompactStatusLabel(status: PackageStatus): string {
+  if (status === "READY_FOR_PICKUP") {
+    return "Ready";
+  }
+
+  if (status === "PICKED_UP") {
+    return "Picked Up";
+  }
+
+  if (status === "DRYING") {
+    return "Drying";
+  }
+
+  if (status === "WASHING") {
+    return "Washing";
+  }
+
+  return "Received";
+}
+
+function getCompactPaymentLabel(status: PaymentStatus): string {
+  if (status === "PAID") {
+    return "Paid";
+  }
+
+  if (status === "PENDING") {
+    return "Pending";
   }
 
   return "Not Paid";
@@ -195,18 +227,27 @@ export default async function TrackPackagePage({ params }: Params) {
       <TrackingHeader
         rightContent={
           <>
-            <span className={`status-chip border ${statusPill(record.status)}`}>
-              {getStatusLabel(record.status)}
+            <span
+              className={`status-chip border px-2.5 py-2 text-[0.72rem] sm:text-[0.76rem] ${statusPill(record.status)}`}
+            >
+              <span className="sm:hidden">{getCompactStatusLabel(record.status)}</span>
+              <span className="hidden sm:inline">{getStatusLabel(record.status)}</span>
             </span>
-            <span className={`status-chip border ${paymentPill(record.payment_status)}`}>
-              {getPaymentLabel(record.payment_status, record.payment_source)}
+            <span
+              className={`status-chip border px-2.5 py-2 text-[0.72rem] sm:text-[0.76rem] ${paymentPill(record.payment_status)}`}
+            >
+              <span className="sm:hidden">{getCompactPaymentLabel(record.payment_status)}</span>
+              <span className="hidden sm:inline">
+                {getPaymentLabel(record.payment_status, record.payment_source)}
+              </span>
             </span>
             {record.payment_status !== "PAID" ? (
               <Link
                 href={`/api/track/${token}/pay`}
-                className="btn btn-primary min-h-[2.9rem] px-4 text-[0.82rem]"
+                className="btn btn-primary min-h-[2.45rem] px-3 text-[0.72rem] sm:min-h-[2.9rem] sm:px-4 sm:text-[0.82rem]"
               >
-                Pay now with Paystack
+                <span className="sm:hidden">Pay Now</span>
+                <span className="hidden sm:inline">Pay now with Paystack</span>
               </Link>
             ) : null}
           </>

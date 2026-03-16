@@ -28,7 +28,6 @@ import {
   type ProcessingWeek,
 } from "@/lib/types";
 
-import { AdminShell } from "../_components/admin-shell";
 import {
   cn,
   fetchWithTimeout,
@@ -36,9 +35,9 @@ import {
   toLocalDatetimeValue,
 } from "../_components/client-utils";
 import { Toaster, useToasts } from "../_components/toaster";
+import { useWorkspaceShell } from "../_components/workspace-shell-frame";
 
 interface PackagesPageClientProps {
-  userEmail: string;
   initialCurrentWeek: ProcessingWeek | null;
   initialPackages: PackageRecord[];
   initialLoadReady: boolean;
@@ -230,13 +229,9 @@ function writeLocalBootstrapCache(payload: PackagesBootstrapPayload) {
   }
 }
 
-function SkeletonPackagesPage({ userEmail }: { userEmail: string }) {
+function SkeletonPackagesPage() {
   return (
-    <AdminShell
-      userEmail={userEmail}
-      title="Packages"
-      subtitle="Create customer packages, track updates, and manage status changes."
-    >
+    <>
       <section className="grid gap-4 md:grid-cols-4">
         {Array.from({ length: 4 }).map((_, index) => (
           <div key={index} className="skeleton-card h-28" />
@@ -247,12 +242,11 @@ function SkeletonPackagesPage({ userEmail }: { userEmail: string }) {
         <div className="skeleton-card h-[420px]" />
       </section>
       <section className="mt-4 skeleton-card h-[440px]" />
-    </AdminShell>
+    </>
   );
 }
 
 export function PackagesPageClient({
-  userEmail,
   initialCurrentWeek,
   initialPackages,
   initialLoadReady,
@@ -331,6 +325,12 @@ export function PackagesPageClient({
     const weightKg = Number(createForm.totalWeightKg);
     return calculatePackagePricing(weightKg, createForm.packageType);
   }, [createForm.packageType, createForm.totalWeightKg]);
+
+  useWorkspaceShell({
+    packageCount: allPackages.length,
+    refreshing: busyAction === "refresh",
+    onRefresh: () => void refreshAll(),
+  });
 
   function showLoadingToast(title: string, message: string): number {
     return pushToast("loading", title, message, { persist: true });
@@ -915,72 +915,11 @@ export function PackagesPageClient({
   }
 
   if (loading) {
-    return <SkeletonPackagesPage userEmail={userEmail} />;
+    return <SkeletonPackagesPage />;
   }
 
   return (
-    <AdminShell
-      userEmail={userEmail}
-      title="Packages"
-      subtitle="Create customer packages, track updates, and manage status changes."
-      headerExtras={
-        <>
-          <button
-            type="button"
-            onClick={() => void refreshAll()}
-            disabled={isBusy}
-            className="admin-icon-btn"
-            aria-label="Refresh packages"
-            title="Refresh packages"
-          >
-            <svg
-              viewBox="0 0 20 20"
-              fill="none"
-              className={cn(
-                "h-4 w-4 text-slate-700",
-                busyAction === "refresh" ? "animate-spin" : "",
-              )}
-              aria-hidden="true"
-            >
-              <path
-                d="M16.5 10A6.5 6.5 0 0 1 5.41 14.59"
-                stroke="currentColor"
-                strokeWidth="1.8"
-                strokeLinecap="round"
-              />
-              <path
-                d="M4.5 10A6.5 6.5 0 0 1 14.59 5.41"
-                stroke="currentColor"
-                strokeWidth="1.8"
-                strokeLinecap="round"
-              />
-              <path
-                d="M6.1 14.75H5v-1.1"
-                stroke="currentColor"
-                strokeWidth="1.8"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-              <path
-                d="M13.9 5.25H15v1.1"
-                stroke="currentColor"
-                strokeWidth="1.8"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-          </button>
-          <div className="inline-flex min-h-[2.9rem] items-center gap-2 rounded-full border border-slate-200 bg-white/92 px-3 py-2 shadow-[0_8px_18px_rgba(20,32,51,0.06)]">
-            <span className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
-              Packages
-            </span>
-            <span className="font-display text-lg font-semibold text-slate-950">
-              {allPackages.length}
-            </span>
-          </div>
-        </>
-      }
-    >
+    <>
       <Toaster toasts={toasts} dismiss={dismissToast} />
 
       <section className="mb-5 grid gap-4 md:grid-cols-3">
@@ -1503,6 +1442,6 @@ export function PackagesPageClient({
           </div>
         </div>
       ) : null}
-    </AdminShell>
+    </>
   );
 }

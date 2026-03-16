@@ -11,12 +11,11 @@ import type {
   WorkerPayoutSummary,
 } from "@/lib/types";
 
-import { AdminShell } from "../_components/admin-shell";
 import { fetchWithTimeout, parseApiResponse } from "../_components/client-utils";
 import { Toaster, useToasts } from "../_components/toaster";
+import { useWorkspaceShell } from "../_components/workspace-shell-frame";
 
 interface SummaryPageClientProps {
-  userEmail: string;
   initialCurrentWeek: ProcessingWeek | null;
   initialWeeks: ProcessingWeekWithReport[];
   initialActivePackageCount: number;
@@ -36,23 +35,57 @@ interface DashboardPayload {
   workerPayoutSummaries: WorkerPayoutSummary[];
 }
 
-function SkeletonSummaryPage({ userEmail }: { userEmail: string }) {
+const SUMMARY_DASHBOARD_STORAGE_KEY = "heisck.admin.summary.dashboard";
+
+function readSummaryDashboardCache(): DashboardPayload | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  try {
+    const raw = window.localStorage.getItem(SUMMARY_DASHBOARD_STORAGE_KEY);
+    if (!raw) {
+      return null;
+    }
+
+    const parsed = JSON.parse(raw) as DashboardPayload;
+    if (!parsed || !Array.isArray(parsed.weeks)) {
+      return null;
+    }
+
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function writeSummaryDashboardCache(payload: DashboardPayload) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(
+      SUMMARY_DASHBOARD_STORAGE_KEY,
+      JSON.stringify(payload),
+    );
+  } catch {
+    // Best effort only.
+  }
+}
+
+function SkeletonSummaryPage() {
   return (
-    <AdminShell
-      userEmail={userEmail}
-      title="Summary"
-      subtitle="Review operations here and use /admin/private directly for protected totals and exports."
-    >
+    <>
       <section className="grid gap-4">
         <div className="skeleton-card h-[220px]" />
         <div className="skeleton-card h-[440px]" />
       </section>
-    </AdminShell>
+    </>
   );
 }
 
 export function SummaryPageClient({
-  userEmail,
   initialCurrentWeek,
   initialWeeks,
   initialActivePackageCount,
@@ -100,11 +133,18 @@ export function SummaryPageClient({
     };
   }, [activePackageCount, closedWeeks]);
 
+  useWorkspaceShell({
+    packageCount: summary.totalPackages,
+    refreshing,
+    onRefresh: () => void refresh(),
+  });
+
   async function loadDashboard() {
     const response = await fetchWithTimeout("/api/admin/dashboard", {
       cache: "no-store",
     });
     const payload = await parseApiResponse<DashboardPayload>(response);
+    writeSummaryDashboardCache(payload);
     setCurrentWeek(payload.currentWeek);
     setWeeks(payload.weeks);
     setActivePackageCount(payload.activePackageCount);
@@ -145,75 +185,35 @@ export function SummaryPageClient({
     }
 
     if (!initialLoadReady) {
+      const cached = readSummaryDashboardCache();
+      if (cached) {
+        setCurrentWeek(cached.currentWeek);
+        setWeeks(cached.weeks);
+        setActivePackageCount(cached.activePackageCount);
+        setExpressPackageCount(cached.expressPackageCount);
+        setPackageTypeSummary(cached.packageTypeSummary);
+        setWorkerPayoutSummaries(cached.workerPayoutSummaries);
+        setLoading(false);
+        pushToast(
+          "info",
+          "Loaded saved summary",
+          "Refreshing live data in the background.",
+        );
+        void refresh(false);
+        return;
+      }
+
       void refresh(true);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialLoadError, initialLoadReady]);
 
   if (loading) {
-    return <SkeletonSummaryPage userEmail={userEmail} />;
+    return <SkeletonSummaryPage />;
   }
 
   return (
-    <AdminShell
-      userEmail={userEmail}
-      title="Summary"
-      subtitle="Review operations here and use /admin/private directly for protected totals and exports."
-      headerExtras={
-        <>
-          <button
-            type="button"
-            onClick={() => void refresh()}
-            disabled={refreshing}
-            className="admin-icon-btn"
-            aria-label="Refresh summary"
-            title="Refresh summary"
-          >
-            <svg
-              viewBox="0 0 20 20"
-              fill="none"
-              className={refreshing ? "h-4 w-4 animate-spin text-slate-700" : "h-4 w-4 text-slate-700"}
-              aria-hidden="true"
-            >
-              <path
-                d="M16.5 10A6.5 6.5 0 0 1 5.41 14.59"
-                stroke="currentColor"
-                strokeWidth="1.8"
-                strokeLinecap="round"
-              />
-              <path
-                d="M4.5 10A6.5 6.5 0 0 1 14.59 5.41"
-                stroke="currentColor"
-                strokeWidth="1.8"
-                strokeLinecap="round"
-              />
-              <path
-                d="M6.1 14.75H5v-1.1"
-                stroke="currentColor"
-                strokeWidth="1.8"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-              <path
-                d="M13.9 5.25H15v1.1"
-                stroke="currentColor"
-                strokeWidth="1.8"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-          </button>
-          <div className="inline-flex min-h-[2.9rem] items-center gap-2 rounded-full border border-slate-200 bg-white/92 px-3 py-2 shadow-[0_8px_18px_rgba(20,32,51,0.06)]">
-            <span className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
-              Packages
-            </span>
-            <span className="font-display text-lg font-semibold text-slate-950">
-              {summary.totalPackages}
-            </span>
-          </div>
-        </>
-      }
-    >
+    <>
       <Toaster toasts={toasts} dismiss={dismissToast} />
 
       <section className="mb-5">
@@ -429,6 +429,6 @@ export function SummaryPageClient({
           </>
         )}
       </section>
-    </AdminShell>
+    </>
   );
 }

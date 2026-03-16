@@ -126,6 +126,7 @@ textarea {
   font-size: 0.96rem;
   font-weight: 700;
   color: var(--foreground);
+  white-space: nowrap;
 }
 
 .admin-icon-btn,
@@ -160,6 +161,43 @@ textarea {
   font-size: 0.9rem;
   font-weight: 800;
   color: #0f5c68;
+}
+
+.topbar-counter {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  .admin-topbar {
+    top: 0.55rem;
+    gap: 0.45rem;
+    border-radius: 1.15rem;
+    padding: 0.68rem 0.72rem;
+  }
+
+  .admin-time-pill {
+    min-height: 2.32rem;
+    min-width: 5.35rem;
+    padding: 0.45rem 0.62rem;
+    font-size: 0.72rem;
+  }
+
+  .admin-icon-btn,
+  .admin-profile-badge {
+    height: 2.32rem;
+    width: 2.32rem;
+  }
+
+  .topbar-counter {
+    min-height: 2.32rem;
+    gap: 0.35rem;
+    padding: 0.45rem 0.62rem;
+  }
+
+  .topbar-counter .font-display {
+    font-size: 0.94rem;
+  }
 }
 
 .metric-tile {
