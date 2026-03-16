@@ -1,6 +1,5 @@
 import { requirePageUser } from "@/lib/auth";
 import type {
-  ExpressBusinessSummary,
   PackageTypeSummary,
   WorkerPayoutSummary,
 } from "@/lib/types";
@@ -14,13 +13,6 @@ export default async function AdminSummaryPage() {
     normal_wash_dry_count: 0,
     express_wash_dry_count: 0,
   };
-  const initialExpressBusinessSummary: ExpressBusinessSummary = {
-    express_package_count: 0,
-    express_total_weight_kg: 0,
-    your_express_share_ghs: 0,
-    partner_express_share_ghs: 0,
-    express_fixed_charge_total_ghs: 0,
-  };
   const initialWorkerPayoutSummaries: WorkerPayoutSummary[] = [];
 
   return (
@@ -28,9 +20,9 @@ export default async function AdminSummaryPage() {
       userEmail={user.email ?? "admin"}
       initialCurrentWeek={null}
       initialWeeks={[]}
-      initialPackages={[]}
+      initialActivePackageCount={0}
+      initialExpressPackageCount={0}
       initialPackageTypeSummary={initialPackageTypeSummary}
-      initialExpressBusinessSummary={initialExpressBusinessSummary}
       initialWorkerPayoutSummaries={initialWorkerPayoutSummaries}
       initialLoadReady={false}
       initialLoadError={null}

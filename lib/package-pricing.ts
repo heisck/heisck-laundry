@@ -1,7 +1,7 @@
 import type { PackageType } from "@/lib/types";
 
 export const FIXED_PACKAGE_CHARGE_GHS = 2;
-export const PAYSTACK_FEE_RATE = 0.01;
+export const PAYSTACK_FEE_RATE = 0.0195;
 
 const PACKAGE_TYPE_DETAILS: Record<
   PackageType,
@@ -15,21 +15,21 @@ const PACKAGE_TYPE_DETAILS: Record<
 > = {
   WASH_ONLY: {
     label: "Wash Only",
-    optionLabel: "Wash Only - 6 GHS/kg",
+    optionLabel: "Wash Only",
     ratePerKg: 6,
     turnaroundLabel: "Ready in about 48 hours",
     suggestedEtaHours: 48,
   },
   NORMAL_WASH_DRY: {
-    label: "Normal Wash & Dry",
-    optionLabel: "Normal Wash & Dry - 8 GHS/kg",
+    label: "Normal",
+    optionLabel: "Normal",
     ratePerKg: 8,
     turnaroundLabel: "Ready in 48 hours",
     suggestedEtaHours: 48,
   },
   EXPRESS_WASH_DRY: {
-    label: "Express Wash & Dry",
-    optionLabel: "Express Wash & Dry - 14 GHS/kg",
+    label: "Express",
+    optionLabel: "Express",
     ratePerKg: 14,
     turnaroundLabel: "Same day, about 6-12 hours",
     suggestedEtaHours: 12,

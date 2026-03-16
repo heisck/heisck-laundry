@@ -2,10 +2,15 @@ import Link from "next/link";
 
 import { getPackageTypeLabel } from "@/lib/package-pricing";
 import { getDb, withDbConnectionRetry } from "@/lib/db";
-import { getStatusLabel } from "@/lib/status";
+import { getStatusFlow, getStatusLabel } from "@/lib/status";
 import { formatAccraDateTime } from "@/lib/time";
 import { verifyTrackingToken } from "@/lib/tracking-token";
-import type { PackageStatus, PackageType } from "@/lib/types";
+import type {
+  PackageStatus,
+  PackageType,
+  PaymentSource,
+  PaymentStatus,
+} from "@/lib/types";
 
 interface Params {
   params: Promise<{ token: string }>;
@@ -25,17 +30,9 @@ interface TrackPackageRow {
   eta_at: string;
   expires_at: string;
   picked_up_at: string | null;
-  payment_status: "UNPAID" | "PENDING" | "PAID";
+  payment_status: PaymentStatus;
+  payment_source: PaymentSource;
 }
-
-
-const STATUS_STEPS: PackageStatus[] = [
-  "RECEIVED",
-  "WASHING",
-  "DRYING",
-  "READY_FOR_PICKUP",
-  "PICKED_UP",
-];
 
 function statusPill(status: PackageStatus): string {
   if (status === "PICKED_UP") {
@@ -84,6 +81,22 @@ function InfoCard({
   );
 }
 
+function getPaymentLabel(status: PaymentStatus, source: PaymentSource): string {
+  if (status === "PAID" && source === "MANUAL") {
+    return "Paid (Manual)";
+  }
+
+  if (status === "PAID" && source === "PAYSTACK") {
+    return "Paid (Paystack)";
+  }
+
+  if (status === "PENDING") {
+    return "Pending Payment";
+  }
+
+  return "Not Paid";
+}
+
 export default async function TrackPackagePage({ params }: Params) {
   const { token } = await params;
 
@@ -111,7 +124,8 @@ export default async function TrackPackagePage({ params }: Params) {
         eta_at,
         expires_at,
         picked_up_at,
-        payment_status
+        payment_status,
+        payment_source
       from packages
       where id = ${tokenPayload.packageId}
         and tracking_token_id = ${tokenPayload.tokenId}
@@ -129,7 +143,8 @@ export default async function TrackPackagePage({ params }: Params) {
     return <ExpiredView />;
   }
 
-  const currentIndex = STATUS_STEPS.indexOf(record.status);
+  const statusSteps = getStatusFlow(record.package_type);
+  const currentIndex = statusSteps.indexOf(record.status);
 
   return (
     <main className="mx-auto w-full max-w-[1260px] px-5 py-8 md:px-8">
@@ -173,7 +188,10 @@ export default async function TrackPackagePage({ params }: Params) {
             <InfoCard label="Clothes Count" value={String(record.clothes_count)} />
             <InfoCard label="Weight" value={`${Number(record.total_weight_kg).toFixed(2)} kg`} />
             <InfoCard label="Total Price" value={`GHS ${Number(record.total_price_ghs).toFixed(2)}`} />
-            <InfoCard label="Payment" value={record.payment_status} />
+            <InfoCard
+              label="Payment"
+              value={getPaymentLabel(record.payment_status, record.payment_source)}
+            />
           </div>
         </article>
 
@@ -213,7 +231,7 @@ export default async function TrackPackagePage({ params }: Params) {
         </div>
 
         <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-          {STATUS_STEPS.map((status, index) => {
+          {statusSteps.map((status, index) => {
             const reached = index <= currentIndex;
             const isCurrent = index === currentIndex;
 

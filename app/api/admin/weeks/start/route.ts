@@ -1,8 +1,13 @@
+import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { requireApiUser } from "@/lib/auth";
 import { handleApiError } from "@/lib/api";
+import {
+  isPrivateAccessCookieValueValid,
+  PRIVATE_ACCESS_COOKIE_NAME,
+} from "@/lib/private-access";
 import { invalidateAdminPackagesCache } from "@/lib/services/admin-packages";
 import { startProcessingWeek } from "@/lib/services/weeks";
 
@@ -14,6 +19,18 @@ export async function POST(request: Request) {
   const auth = await requireApiUser();
   if ("response" in auth) {
     return auth.response;
+  }
+
+  const cookieStore = await cookies();
+  const hasPrivateAccess = await isPrivateAccessCookieValueValid(
+    cookieStore.get(PRIVATE_ACCESS_COOKIE_NAME)?.value,
+  );
+
+  if (!hasPrivateAccess) {
+    return NextResponse.json(
+      { error: "Private access is required for week changes." },
+      { status: 403 },
+    );
   }
 
   try {

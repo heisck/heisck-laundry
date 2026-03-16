@@ -20,7 +20,14 @@ export async function GET(request: Request, { params }: Params) {
   if (verification.data.status === "success") {
     await withDbConnectionRetry(async () => {
       const sql = getDb();
-      await sql`update packages set payment_status='PAID', payment_paid_at=coalesce(${verification.data.paid_at}, now()::text)::timestamptz where payment_reference=${reference}`;
+      await sql`
+        update packages
+        set
+          payment_status='PAID',
+          payment_source='PAYSTACK',
+          payment_paid_at=coalesce(${verification.data.paid_at}, now()::text)::timestamptz
+        where payment_reference=${reference}
+      `;
     });
   }
 

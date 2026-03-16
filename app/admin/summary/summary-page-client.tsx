@@ -1,13 +1,10 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { getWorkerLabel } from "@/lib/payouts";
 import { formatAccraDateTime } from "@/lib/time";
 import type {
-  ExpressBusinessSummary,
-  PackageRecord,
   PackageTypeSummary,
   ProcessingWeek,
   ProcessingWeekWithReport,
@@ -22,9 +19,9 @@ interface SummaryPageClientProps {
   userEmail: string;
   initialCurrentWeek: ProcessingWeek | null;
   initialWeeks: ProcessingWeekWithReport[];
-  initialPackages: PackageRecord[];
+  initialActivePackageCount: number;
+  initialExpressPackageCount: number;
   initialPackageTypeSummary: PackageTypeSummary;
-  initialExpressBusinessSummary: ExpressBusinessSummary;
   initialWorkerPayoutSummaries: WorkerPayoutSummary[];
   initialLoadReady: boolean;
   initialLoadError: string | null;
@@ -32,11 +29,10 @@ interface SummaryPageClientProps {
 
 interface DashboardPayload {
   currentWeek: ProcessingWeek | null;
-  remainingSeconds: number;
   weeks: ProcessingWeekWithReport[];
-  packages: PackageRecord[];
+  activePackageCount: number;
+  expressPackageCount: number;
   packageTypeSummary: PackageTypeSummary;
-  expressBusinessSummary: ExpressBusinessSummary;
   workerPayoutSummaries: WorkerPayoutSummary[];
 }
 
@@ -45,7 +41,7 @@ function SkeletonSummaryPage({ userEmail }: { userEmail: string }) {
     <AdminShell
       userEmail={userEmail}
       title="Order Summary"
-      subtitle="Review totals and export closed weekly reports."
+      subtitle="Review operations here and use /admin/private directly for protected totals and exports."
     >
       <section className="grid gap-4 md:grid-cols-4">
         {Array.from({ length: 4 }).map((_, index) => (
@@ -64,9 +60,9 @@ export function SummaryPageClient({
   userEmail,
   initialCurrentWeek,
   initialWeeks,
-  initialPackages,
+  initialActivePackageCount,
+  initialExpressPackageCount,
   initialPackageTypeSummary,
-  initialExpressBusinessSummary,
   initialWorkerPayoutSummaries,
   initialLoadReady,
   initialLoadError,
@@ -77,11 +73,14 @@ export function SummaryPageClient({
     initialCurrentWeek,
   );
   const [weeks, setWeeks] = useState<ProcessingWeekWithReport[]>(initialWeeks);
-  const [packages, setPackages] = useState<PackageRecord[]>(initialPackages);
+  const [activePackageCount, setActivePackageCount] = useState(
+    initialActivePackageCount,
+  );
+  const [expressPackageCount, setExpressPackageCount] = useState(
+    initialExpressPackageCount,
+  );
   const [packageTypeSummary, setPackageTypeSummary] =
     useState<PackageTypeSummary>(initialPackageTypeSummary);
-  const [expressBusinessSummary, setExpressBusinessSummary] =
-    useState<ExpressBusinessSummary>(initialExpressBusinessSummary);
   const [workerPayoutSummaries, setWorkerPayoutSummaries] =
     useState<WorkerPayoutSummary[]>(initialWorkerPayoutSummaries);
   const [loading, setLoading] = useState(!initialLoadReady);
@@ -98,35 +97,13 @@ export function SummaryPageClient({
       (sum, week) => sum + (week.package_count ?? 0),
       0,
     );
-    const closedWeight = closedWeeks.reduce(
-      (sum, week) => sum + (week.total_weight_kg ?? 0),
-      0,
-    );
-    const closedRevenue = closedWeeks.reduce(
-      (sum, week) => sum + (week.total_price_ghs ?? 0),
-      0,
-    );
-
-    const activePackageCount = packages.length;
-    const activeWeight = packages.reduce(
-      (sum, item) => sum + item.total_weight_kg,
-      0,
-    );
-    const activeRevenue = packages.reduce(
-      (sum, item) => sum + item.total_price_ghs,
-      0,
-    );
 
     return {
       closedWeekCount: closedWeeks.length,
       totalPackages: closedPackageCount + activePackageCount,
-      totalWeight: closedWeight + activeWeight,
-      totalRevenue: closedRevenue + activeRevenue,
       activePackageCount,
-      activeWeight,
-      activeRevenue,
     };
-  }, [closedWeeks, packages]);
+  }, [activePackageCount, closedWeeks]);
 
   async function loadDashboard() {
     const response = await fetchWithTimeout("/api/admin/dashboard", {
@@ -135,9 +112,9 @@ export function SummaryPageClient({
     const payload = await parseApiResponse<DashboardPayload>(response);
     setCurrentWeek(payload.currentWeek);
     setWeeks(payload.weeks);
-    setPackages(payload.packages);
+    setActivePackageCount(payload.activePackageCount);
+    setExpressPackageCount(payload.expressPackageCount);
     setPackageTypeSummary(payload.packageTypeSummary);
-    setExpressBusinessSummary(payload.expressBusinessSummary);
     setWorkerPayoutSummaries(payload.workerPayoutSummaries);
   }
 
@@ -186,7 +163,7 @@ export function SummaryPageClient({
     <AdminShell
       userEmail={userEmail}
       title="Order Summary"
-      subtitle="Review totals and export closed weekly reports."
+      subtitle="Review operations here and use /admin/private directly for protected totals and exports."
     >
       <Toaster toasts={toasts} dismiss={dismissToast} />
 
@@ -204,20 +181,20 @@ export function SummaryPageClient({
           </p>
         </article>
         <article className="metric-tile px-5 py-5">
-          <p className="label-kicker">Total Weight</p>
+          <p className="label-kicker">Active Packages</p>
           <p className="font-display mt-3 text-3xl font-semibold text-slate-950">
-            {summary.totalWeight.toFixed(2)} kg
+            {summary.activePackageCount}
           </p>
         </article>
         <article className="metric-tile px-5 py-5">
-          <p className="label-kicker">Total Revenue</p>
+          <p className="label-kicker">Express Orders</p>
           <p className="font-display mt-3 text-3xl font-semibold text-slate-950">
-            GHS {summary.totalRevenue.toFixed(2)}
+            {expressPackageCount}
           </p>
         </article>
       </section>
 
-      <section className="mb-5 grid gap-5 lg:grid-cols-2">
+      <section className="mb-5">
         <article className="glass-card overflow-hidden">
           <div className="border-b border-slate-200/70 px-5 py-4">
             <p className="label-kicker">Package Type Breakdown</p>
@@ -230,51 +207,15 @@ export function SummaryPageClient({
               </p>
             </div>
             <div className="metric-tile p-4">
-              <p className="label-kicker">
-                Normal Wash & Dry
-              </p>
+              <p className="label-kicker">Normal</p>
               <p className="font-display mt-2 text-2xl font-semibold text-slate-950">
                 {packageTypeSummary.normal_wash_dry_count}
               </p>
             </div>
             <div className="metric-tile p-4">
-              <p className="label-kicker">
-                Express Wash & Dry
-              </p>
+              <p className="label-kicker">Express</p>
               <p className="font-display mt-2 text-2xl font-semibold text-slate-950">
                 {packageTypeSummary.express_wash_dry_count}
-              </p>
-            </div>
-          </div>
-        </article>
-
-        <article className="glass-card overflow-hidden">
-          <div className="border-b border-slate-200/70 px-5 py-4">
-            <p className="label-kicker">Express Split</p>
-          </div>
-          <div className="grid gap-4 p-5 md:grid-cols-2">
-            <div className="metric-tile p-4">
-              <p className="label-kicker">Express Packages</p>
-              <p className="font-display mt-2 text-2xl font-semibold text-slate-950">
-                {expressBusinessSummary.express_package_count}
-              </p>
-            </div>
-            <div className="metric-tile p-4">
-              <p className="label-kicker">Express Weight</p>
-              <p className="font-display mt-2 text-2xl font-semibold text-slate-950">
-                {expressBusinessSummary.express_total_weight_kg.toFixed(2)} kg
-              </p>
-            </div>
-            <div className="metric-tile p-4">
-              <p className="label-kicker">Your Share</p>
-              <p className="font-display mt-2 text-2xl font-semibold text-slate-950">
-                GHS {expressBusinessSummary.your_express_share_ghs.toFixed(2)}
-              </p>
-            </div>
-            <div className="metric-tile p-4">
-              <p className="label-kicker">Partner Share</p>
-              <p className="font-display mt-2 text-2xl font-semibold text-slate-950">
-                GHS {expressBusinessSummary.partner_express_share_ghs.toFixed(2)}
               </p>
             </div>
           </div>
@@ -286,53 +227,71 @@ export function SummaryPageClient({
           <p className="label-kicker">Worker Payout Tracker</p>
         </div>
         <div className="space-y-4 p-4 md:hidden">
-          {workerPayoutSummaries.map((summary) => (
-            <article key={summary.worker_name} className="metric-tile p-4">
+          {workerPayoutSummaries.map((summaryRow) => (
+            <article key={summaryRow.worker_name} className="metric-tile p-4">
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <p className="font-display text-xl font-semibold text-slate-950">
-                    {getWorkerLabel(summary.worker_name)}
+                    {getWorkerLabel(summaryRow.worker_name)}
                   </p>
                   <p className="mt-1 text-sm leading-6 text-slate-500">
-                    Grand total: GHS {summary.grand_total_ghs.toFixed(2)}
+                    Grand total: GHS {summaryRow.grand_total_ghs.toFixed(2)}
                   </p>
                 </div>
               </div>
               <div className="mt-4 grid gap-3 sm:grid-cols-2">
                 <div className="surface-subtle px-4 py-3">
+                  <p className="label-kicker">Intake</p>
+                  <p className="mt-2 text-sm font-semibold text-slate-950">
+                    {summaryRow.intake_count}
+                  </p>
+                </div>
+                <div className="surface-subtle px-4 py-3">
                   <p className="label-kicker">Washing</p>
                   <p className="mt-2 text-sm font-semibold text-slate-950">
-                    {summary.washing_count}
+                    {summaryRow.washing_count}
                   </p>
                 </div>
                 <div className="surface-subtle px-4 py-3">
                   <p className="label-kicker">Drying Downstairs</p>
                   <p className="mt-2 text-sm font-semibold text-slate-950">
-                    {summary.drying_downstairs_count}
+                    {summaryRow.drying_downstairs_count}
                   </p>
                 </div>
                 <div className="surface-subtle px-4 py-3">
                   <p className="label-kicker">Removed From Line</p>
                   <p className="mt-2 text-sm font-semibold text-slate-950">
-                    {summary.removed_from_line_count}
+                    {summaryRow.removed_from_line_count}
+                  </p>
+                </div>
+                <div className="surface-subtle px-4 py-3">
+                  <p className="label-kicker">Folded</p>
+                  <p className="mt-2 text-sm font-semibold text-slate-950">
+                    {summaryRow.folded_count}
                   </p>
                 </div>
                 <div className="surface-subtle px-4 py-3">
                   <p className="label-kicker">Dryer Operation</p>
                   <p className="mt-2 text-sm font-semibold text-slate-950">
-                    {summary.dryer_operation_count}
+                    {summaryRow.dryer_operation_count}
+                  </p>
+                </div>
+                <div className="surface-subtle px-4 py-3">
+                  <p className="label-kicker">Express Remove + Fold</p>
+                  <p className="mt-2 text-sm font-semibold text-slate-950">
+                    {summaryRow.removed_and_folded_from_dryer_count}
                   </p>
                 </div>
                 <div className="surface-subtle px-4 py-3">
                   <p className="label-kicker">Your Side</p>
                   <p className="mt-2 text-sm font-semibold text-slate-950">
-                    GHS {summary.your_side_total_ghs.toFixed(2)}
+                    GHS {summaryRow.your_side_total_ghs.toFixed(2)}
                   </p>
                 </div>
                 <div className="surface-subtle px-4 py-3">
                   <p className="label-kicker">Partner Side</p>
                   <p className="mt-2 text-sm font-semibold text-slate-950">
-                    GHS {summary.partner_side_total_ghs.toFixed(2)}
+                    GHS {summaryRow.partner_side_total_ghs.toFixed(2)}
                   </p>
                 </div>
               </div>
@@ -341,37 +300,39 @@ export function SummaryPageClient({
         </div>
 
         <div className="table-wrap hidden md:block">
-          <table className="data-table min-w-[860px]">
+          <table className="data-table min-w-[1120px]">
             <thead>
               <tr className="text-left">
                 <th>Worker</th>
+                <th>Intake</th>
                 <th>Washing</th>
                 <th>Drying Downstairs</th>
                 <th>Removed From Line</th>
+                <th>Folded</th>
                 <th>Dryer Operation</th>
+                <th>Express Remove + Fold</th>
                 <th>Your Side</th>
                 <th>Partner Side</th>
                 <th>Grand Total</th>
               </tr>
             </thead>
             <tbody>
-              {workerPayoutSummaries.map((summary) => (
-                <tr key={summary.worker_name}>
+              {workerPayoutSummaries.map((summaryRow) => (
+                <tr key={summaryRow.worker_name}>
                   <td className="font-medium text-slate-900">
-                    {getWorkerLabel(summary.worker_name)}
+                    {getWorkerLabel(summaryRow.worker_name)}
                   </td>
-                  <td>{summary.washing_count}</td>
-                  <td>{summary.drying_downstairs_count}</td>
-                  <td>{summary.removed_from_line_count}</td>
-                  <td>{summary.dryer_operation_count}</td>
-                  <td>
-                    GHS {summary.your_side_total_ghs.toFixed(2)}
-                  </td>
-                  <td>
-                    GHS {summary.partner_side_total_ghs.toFixed(2)}
-                  </td>
+                  <td>{summaryRow.intake_count}</td>
+                  <td>{summaryRow.washing_count}</td>
+                  <td>{summaryRow.drying_downstairs_count}</td>
+                  <td>{summaryRow.removed_from_line_count}</td>
+                  <td>{summaryRow.folded_count}</td>
+                  <td>{summaryRow.dryer_operation_count}</td>
+                  <td>{summaryRow.removed_and_folded_from_dryer_count}</td>
+                  <td>GHS {summaryRow.your_side_total_ghs.toFixed(2)}</td>
+                  <td>GHS {summaryRow.partner_side_total_ghs.toFixed(2)}</td>
                   <td className="font-semibold text-slate-900">
-                    GHS {summary.grand_total_ghs.toFixed(2)}
+                    GHS {summaryRow.grand_total_ghs.toFixed(2)}
                   </td>
                 </tr>
               ))}
@@ -392,7 +353,7 @@ export function SummaryPageClient({
                 {currentWeek?.label ?? "No active week"}
               </p>
             </div>
-            <div className="grid gap-4 md:grid-cols-3">
+            <div className="grid gap-4 md:grid-cols-2">
               <div className="metric-tile p-4">
                 <p className="label-kicker">Packages</p>
                 <p className="font-display mt-2 text-2xl font-semibold text-slate-950">
@@ -400,15 +361,9 @@ export function SummaryPageClient({
                 </p>
               </div>
               <div className="metric-tile p-4">
-                <p className="label-kicker">Weight</p>
+                <p className="label-kicker">Status</p>
                 <p className="font-display mt-2 text-2xl font-semibold text-slate-950">
-                  {summary.activeWeight.toFixed(2)} kg
-                </p>
-              </div>
-              <div className="metric-tile p-4">
-                <p className="label-kicker">Revenue</p>
-                <p className="font-display mt-2 text-2xl font-semibold text-slate-950">
-                  GHS {summary.activeRevenue.toFixed(2)}
+                  {currentWeek?.status ?? "No active week"}
                 </p>
               </div>
             </div>
@@ -425,57 +380,33 @@ export function SummaryPageClient({
 
         <article className="glass-card overflow-hidden">
           <div className="border-b border-slate-200/70 px-5 py-4">
-            <p className="label-kicker">Export Reports</p>
+            <p className="label-kicker">Protected Private Totals</p>
           </div>
-          {closedWeeks.length === 0 ? (
-            <p className="p-5 text-sm leading-6 text-slate-500">
-              No closed weeks yet. Exports become available after a week is closed.
-            </p>
-          ) : (
-            <div className="divide-y divide-slate-200">
-              {closedWeeks.map((week) => (
-                <article
-                  key={week.id}
-                  className="flex flex-col gap-4 p-5 md:flex-row md:items-center md:justify-between"
-                >
-                  <div>
-                    <p className="font-display text-xl font-semibold text-slate-950">{week.label}</p>
-                    <p className="mt-2 text-sm leading-6 text-slate-500">
-                      {formatAccraDateTime(week.start_at)} - {formatAccraDateTime(week.end_at)}
-                    </p>
-                    <p className="mt-1 text-sm leading-6 text-slate-500">
-                      {week.package_count ?? 0} packages |{" "}
-                      {week.total_weight_kg?.toFixed(2) ?? "0.00"} kg | GHS{" "}
-                      {week.total_price_ghs?.toFixed(2) ?? "0.00"}
-                    </p>
-                  </div>
-                  <div className="flex gap-2">
-                    <Link
-                      href={`/api/admin/weeks/${week.id}/report.csv`}
-                      className="btn btn-secondary"
-                    >
-                      Export CSV
-                    </Link>
-                    <Link
-                      href={`/api/admin/weeks/${week.id}/report.pdf`}
-                      className="btn btn-secondary"
-                    >
-                      Export PDF
-                    </Link>
-                  </div>
-                </article>
-              ))}
+          <div className="space-y-4 p-5">
+            <div className="metric-tile p-4">
+              <p className="label-kicker">Direct URL Only</p>
+              <p className="mt-2 text-lg font-semibold text-slate-950">
+                Sensitive totals and exports moved
+              </p>
+              <p className="mt-2 text-sm leading-6 text-slate-600">
+                Total weight, total amount made, partner amount made, total express kg,
+                weekly exports, and week start or end controls now live at
+                /admin/private behind the owner password.
+              </p>
             </div>
-          )}
+            <p className="text-sm leading-6 text-slate-600">
+              The private page is no longer shown in the menu.
+            </p>
+          </div>
         </article>
       </section>
 
       <section className="glass-card overflow-hidden">
         <div className="border-b border-slate-200/70 px-5 py-4">
-          <p className="label-kicker">Week Totals Table</p>
+          <p className="label-kicker">Week Activity Table</p>
         </div>
         {weeks.length === 0 ? (
-          <p className="p-5 text-sm leading-6 text-slate-500">No weekly totals available yet.</p>
+          <p className="p-5 text-sm leading-6 text-slate-500">No weekly activity available yet.</p>
         ) : (
           <>
             <div className="space-y-4 p-4 md:hidden">
@@ -492,23 +423,11 @@ export function SummaryPageClient({
                     </div>
                     <span className="pill-soft">{week.status}</span>
                   </div>
-                  <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                  <div className="mt-4">
                     <div className="surface-subtle px-4 py-3">
                       <p className="label-kicker">Packages</p>
                       <p className="mt-2 text-sm font-semibold text-slate-950">
                         {week.package_count ?? 0}
-                      </p>
-                    </div>
-                    <div className="surface-subtle px-4 py-3">
-                      <p className="label-kicker">Weight</p>
-                      <p className="mt-2 text-sm font-semibold text-slate-950">
-                        {week.total_weight_kg?.toFixed(2) ?? "0.00"} kg
-                      </p>
-                    </div>
-                    <div className="surface-subtle px-4 py-3">
-                      <p className="label-kicker">Revenue</p>
-                      <p className="mt-2 text-sm font-semibold text-slate-950">
-                        GHS {week.total_price_ghs?.toFixed(2) ?? "0.00"}
                       </p>
                     </div>
                   </div>
@@ -517,37 +436,33 @@ export function SummaryPageClient({
             </div>
 
             <div className="table-wrap hidden md:block">
-            <table className="data-table min-w-[760px]">
-              <thead>
-                <tr className="text-left">
-                  <th>Week</th>
-                  <th>Status</th>
-                  <th>Packages</th>
-                  <th>Weight</th>
-                  <th>Revenue</th>
-                </tr>
-              </thead>
-              <tbody>
-                {weeks.map((week) => (
-                  <tr key={week.id}>
-                    <td>
-                      <p className="font-medium text-slate-900">{week.label}</p>
-                      <p className="text-sm leading-6 text-slate-500">
-                        {formatAccraDateTime(week.start_at)} - {formatAccraDateTime(week.end_at)}
-                      </p>
-                    </td>
-                    <td>
-                      <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium">
-                        {week.status}
-                      </span>
-                    </td>
-                    <td>{week.package_count ?? 0}</td>
-                    <td>{week.total_weight_kg?.toFixed(2) ?? "0.00"} kg</td>
-                    <td>GHS {week.total_price_ghs?.toFixed(2) ?? "0.00"}</td>
+              <table className="data-table min-w-[640px]">
+                <thead>
+                  <tr className="text-left">
+                    <th>Week</th>
+                    <th>Status</th>
+                    <th>Packages</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {weeks.map((week) => (
+                    <tr key={week.id}>
+                      <td>
+                        <p className="font-medium text-slate-900">{week.label}</p>
+                        <p className="text-sm leading-6 text-slate-500">
+                          {formatAccraDateTime(week.start_at)} - {formatAccraDateTime(week.end_at)}
+                        </p>
+                      </td>
+                      <td>
+                        <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium">
+                          {week.status}
+                        </span>
+                      </td>
+                      <td>{week.package_count ?? 0}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </>
         )}

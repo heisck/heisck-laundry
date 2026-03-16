@@ -31,13 +31,22 @@ export const PAYOUT_OWNER_SIDES = ["YOUR_SIDE", "PARTNER_SIDE"] as const;
 export type PayoutOwnerSide = (typeof PAYOUT_OWNER_SIDES)[number];
 
 export const PAYABLE_TASK_TYPES = [
+  "INTAKE",
   "WASHING",
   "DRYING_DOWNSTAIRS",
   "REMOVED_FROM_LINE",
+  "FOLDED",
   "DRYER_OPERATION",
+  "REMOVED_AND_FOLDED_FROM_DRYER",
 ] as const;
 
 export type PayableTaskType = (typeof PAYABLE_TASK_TYPES)[number];
+
+export const PAYMENT_STATUSES = ["UNPAID", "PENDING", "PAID"] as const;
+export type PaymentStatus = (typeof PAYMENT_STATUSES)[number];
+
+export const PAYMENT_SOURCES = ["NONE", "PAYSTACK", "MANUAL"] as const;
+export type PaymentSource = (typeof PAYMENT_SOURCES)[number];
 
 export type NotificationTriggerType = "CREATED" | "STATUS_CHANGED";
 
@@ -80,7 +89,8 @@ export interface PackageRecord {
   updated_at: string;
   picked_up_at: string | null;
   expires_at: string;
-  payment_status: "UNPAID" | "PENDING" | "PAID";
+  payment_status: PaymentStatus;
+  payment_source: PaymentSource;
   payment_reference: string | null;
   payment_paid_at: string | null;
   week_status: ProcessingWeekStatus;
@@ -170,10 +180,13 @@ export interface ExpressBusinessSummary {
 
 export interface WorkerPayoutSummary {
   worker_name: LaundryWorker;
+  intake_count: number;
   washing_count: number;
   drying_downstairs_count: number;
   removed_from_line_count: number;
+  folded_count: number;
   dryer_operation_count: number;
+  removed_and_folded_from_dryer_count: number;
   your_side_total_ghs: number;
   partner_side_total_ghs: number;
   grand_total_ghs: number;

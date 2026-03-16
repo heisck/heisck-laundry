@@ -1,7 +1,12 @@
+import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
-import { requireApiUser } from "@/lib/auth";
 import { handleApiError } from "@/lib/api";
+import { requireApiUser } from "@/lib/auth";
+import {
+  isPrivateAccessCookieValueValid,
+  PRIVATE_ACCESS_COOKIE_NAME,
+} from "@/lib/private-access";
 import { listPackages } from "@/lib/services/packages";
 import {
   getCurrentProcessingWeek,
@@ -15,6 +20,18 @@ export async function GET() {
     return auth.response;
   }
 
+  const cookieStore = await cookies();
+  const hasPrivateAccess = await isPrivateAccessCookieValueValid(
+    cookieStore.get(PRIVATE_ACCESS_COOKIE_NAME)?.value,
+  );
+
+  if (!hasPrivateAccess) {
+    return NextResponse.json(
+      { error: "Private access is required." },
+      { status: 403 },
+    );
+  }
+
   try {
     const [currentWeek, weeks, packages] = await Promise.all([
       getCurrentProcessingWeek(),
@@ -25,15 +42,9 @@ export async function GET() {
 
     return NextResponse.json({
       currentWeek,
-      weeks: weeks.map((week) => ({
-        ...week,
-        total_weight_kg: null,
-        total_price_ghs: null,
-      })),
-      activePackageCount: packages.length,
-      expressPackageCount: operationalSummary.expressBusinessSummary.express_package_count,
-      packageTypeSummary: operationalSummary.packageTypeSummary,
-      workerPayoutSummaries: operationalSummary.workerPayoutSummaries,
+      weeks,
+      packages,
+      expressBusinessSummary: operationalSummary.expressBusinessSummary,
     });
   } catch (error) {
     return handleApiError(error);

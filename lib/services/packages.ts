@@ -9,12 +9,16 @@ import {
   getSuggestedEtaDate,
 } from "@/lib/package-pricing";
 import {
-  getPayableTaskForStatus,
+  getAutomaticTaskForStatus,
+  getIntakeTask,
+  getReadyForPickupTasks,
+  requiresReadyForPickupDetails,
   shouldSendStatusSms,
+  type ReadyForPickupTaskInput,
 } from "@/lib/payouts";
 import { dedupePhones, normalizeGhanaPhone } from "@/lib/phone";
 import { sendArkeselSms } from "@/lib/sms/arkesel";
-import { isForwardTransition } from "@/lib/status";
+import { isAllowedTransition } from "@/lib/status";
 import { addDays } from "@/lib/time";
 import { signTrackingToken } from "@/lib/tracking-token";
 import type {
@@ -23,6 +27,7 @@ import type {
   NotificationTriggerType,
   PackageTaskAssignmentRecord,
   PackageRecord,
+  PaymentStatus,
   PackageStatus,
   PackageType,
 } from "@/lib/types";
@@ -41,6 +46,19 @@ interface CreatePackageInput {
   primaryPhone: string;
   secondaryPhone?: string | null;
   etaAt?: string | null;
+  workerName: LaundryWorker;
+}
+
+interface UpdatePackageStatusInput {
+  workerName?: LaundryWorker;
+  readyForPickupDetails?: ReadyForPickupTaskInput;
+}
+
+interface TaskAssignmentInput {
+  taskType: PackageTaskAssignmentRecord["task_type"];
+  workerName: LaundryWorker;
+  ownerSide: PackageTaskAssignmentRecord["owner_side"];
+  amountGhs: number;
 }
 
 interface SmsDispatchResult {
@@ -120,6 +138,7 @@ function mapPackage(row: Record<string, unknown>): PackageRecord {
     picked_up_at: row.picked_up_at ? new Date(String(row.picked_up_at)).toISOString() : null,
     expires_at: new Date(String(row.expires_at)).toISOString(),
     payment_status: String(row.payment_status ?? "UNPAID") as PackageRecord["payment_status"],
+    payment_source: String(row.payment_source ?? "NONE") as PackageRecord["payment_source"],
     payment_reference: row.payment_reference ? String(row.payment_reference) : null,
     payment_paid_at: row.payment_paid_at ? new Date(String(row.payment_paid_at)).toISOString() : null,
     week_status: String(row.week_status ?? "ACTIVE") as PackageRecord["week_status"],
@@ -480,22 +499,14 @@ export async function sendStatusPackageNotifications(
   };
 }
 
-async function assignPayableTask(params: {
+async function assignTask(params: {
   tx: ReturnType<typeof getDb>;
   packageRecord: PackageRecord;
-  nextStatus: PackageStatus;
-  workerName: LaundryWorker;
+  task: TaskAssignmentInput;
   userId: string;
 }): Promise<PackageTaskAssignmentRecord | null> {
-  const task = getPayableTaskForStatus(
-    params.packageRecord.package_type,
-    params.nextStatus,
-  );
-  if (!task) {
-    return null;
-  }
-
-  const amountGhs = params.workerName === "NOBODY" ? 0 : task.amountGhs;
+  const amountGhs =
+    params.task.workerName === "NOBODY" ? 0 : params.task.amountGhs;
   const rows = await params.tx`
     insert into package_task_assignments
       (
@@ -512,9 +523,9 @@ async function assignPayableTask(params: {
       (
         ${params.packageRecord.id},
         ${params.packageRecord.week_id},
-        ${task.taskType},
-        ${params.workerName},
-        ${task.ownerSide},
+        ${params.task.taskType},
+        ${params.task.workerName},
+        ${params.task.ownerSide},
         ${amountGhs},
         ${params.userId},
         now()
@@ -532,6 +543,93 @@ async function assignPayableTask(params: {
   }
 
   return mapTaskAssignment(rows[0] as Record<string, unknown>);
+}
+
+function buildTaskAssignmentsForStatusChange(params: {
+  packageRecord: PackageRecord;
+  nextStatus: PackageStatus;
+  workerName?: LaundryWorker;
+  readyForPickupDetails?: ReadyForPickupTaskInput;
+}): TaskAssignmentInput[] {
+  const { packageRecord, nextStatus, workerName, readyForPickupDetails } = params;
+
+  if (nextStatus === "READY_FOR_PICKUP") {
+    if (!requiresReadyForPickupDetails(packageRecord.package_type, nextStatus)) {
+      return [];
+    }
+
+    const readyTasks = getReadyForPickupTasks(
+      packageRecord.package_type,
+      readyForPickupDetails,
+    );
+
+    if (packageRecord.package_type === "NORMAL_WASH_DRY") {
+      const removeWorkerName = readyForPickupDetails?.removeWorkerName;
+      if (!removeWorkerName) {
+        throw new AppError(
+          "READY_REMOVE_WORKER_REQUIRED",
+          400,
+          "Choose who removed the clothes from the line.",
+        );
+      }
+
+      const tasks: TaskAssignmentInput[] = readyTasks.map((task) => ({
+        ...task,
+        workerName:
+          task.taskType === "FOLDED"
+            ? (readyForPickupDetails?.foldWorkerName ?? "NOBODY")
+            : removeWorkerName,
+      }));
+
+      if (readyForPickupDetails?.foldCompleted && !readyForPickupDetails.foldWorkerName) {
+        throw new AppError(
+          "READY_FOLD_WORKER_REQUIRED",
+          400,
+          "Choose who folded the clothes.",
+        );
+      }
+
+      return tasks;
+    }
+
+    if (packageRecord.package_type === "EXPRESS_WASH_DRY") {
+      const removeWorkerName = readyForPickupDetails?.removeWorkerName;
+      if (!removeWorkerName) {
+        throw new AppError(
+          "READY_REMOVE_WORKER_REQUIRED",
+          400,
+          "Choose who removed and folded the express clothes.",
+        );
+      }
+
+      return readyTasks.map((task) => ({
+        ...task,
+        workerName: removeWorkerName,
+      }));
+    }
+
+    return [];
+  }
+
+  const task = getAutomaticTaskForStatus(packageRecord.package_type, nextStatus);
+  if (!task) {
+    return [];
+  }
+
+  if (!workerName) {
+    throw new AppError(
+      "STATUS_WORKER_REQUIRED",
+      400,
+      "Choose a worker for this status change.",
+    );
+  }
+
+  return [
+    {
+      ...task,
+      workerName,
+    },
+  ];
 }
 
 export async function createPackage(
@@ -645,6 +743,7 @@ export async function createPackage(
               picked_up_at,
               expires_at,
               payment_status,
+              payment_source,
               payment_reference,
               payment_paid_at
             )
@@ -669,6 +768,7 @@ export async function createPackage(
               null,
               ${expiresAt.toISOString()},
               'UNPAID',
+              'NONE',
               null,
               null
             )
@@ -688,15 +788,28 @@ export async function createPackage(
         `;
 
         const row = rows[0] as Record<string, unknown>;
-        return {
+        const mappedPackage = mapPackage({
           ...row,
           payment_status: "UNPAID",
+          payment_source: "NONE",
           payment_reference: null,
           payment_paid_at: null,
           week_status: "ACTIVE",
           last_delivery_state: null,
           last_notification_at: null,
-        };
+        });
+
+        await assignTask({
+          tx: trx,
+          packageRecord: mappedPackage,
+          task: {
+            ...getIntakeTask(),
+            workerName: input.workerName,
+          },
+          userId,
+        });
+
+        return mappedPackage;
       }
 
       throw new AppError(
@@ -707,7 +820,7 @@ export async function createPackage(
     });
   });
 
-  const mappedPackage = mapPackage(insertedPackage);
+  const mappedPackage = insertedPackage;
   invalidatePackagesListCache();
   const trackingUrl = await createTrackingUrl(
     mappedPackage.id,
@@ -745,8 +858,9 @@ export async function createPackage(
 export async function listPackages(options?: {
   search?: string;
   status?: PackageStatus;
+  paymentStatus?: PaymentStatus;
 }): Promise<PackageRecord[]> {
-  const useDefaultCache = !options?.search && !options?.status;
+  const useDefaultCache = !options?.search && !options?.status && !options?.paymentStatus;
   const cached = useDefaultCache ? getCachedPackageList() : null;
   const now = Date.now();
 
@@ -783,6 +897,7 @@ export async function listPackages(options?: {
             or p.room_number ilike ${pattern}
             or p.customer_name ilike ${pattern})
           and (${options?.status ?? null}::text is null or p.status = ${options?.status ?? null})
+          and (${options?.paymentStatus ?? null}::text is null or p.payment_status = ${options?.paymentStatus ?? null})
         order by p.created_at desc
         limit 200
       `;
@@ -909,14 +1024,18 @@ function filterPackages(
   options?: {
     search?: string;
     status?: PackageStatus;
+    paymentStatus?: PaymentStatus;
   },
 ): PackageRecord[] {
   const search = options?.search?.trim().toLowerCase() ?? "";
   const status = options?.status ?? null;
+  const paymentStatus = options?.paymentStatus ?? null;
 
   return records.filter((record) => {
     const matchesStatus = status === null || record.status === status;
-    if (!matchesStatus) {
+    const matchesPayment =
+      paymentStatus === null || record.payment_status === paymentStatus;
+    if (!matchesStatus || !matchesPayment) {
       return false;
     }
 
@@ -936,7 +1055,7 @@ export async function updatePackageStatus(
   packageId: string,
   nextStatus: PackageStatus,
   userId: string,
-  workerName: LaundryWorker = "NOBODY",
+  input: UpdatePackageStatusInput = {},
   options?: NotificationBehaviorOptions,
 ): Promise<{
   package: PackageRecord;
@@ -965,7 +1084,13 @@ export async function updatePackageStatus(
         return { package: existing, skipped: true };
       }
 
-      if (!isForwardTransition(existing.status, nextStatus)) {
+      if (
+        !isAllowedTransition(
+          existing.package_type,
+          existing.status,
+          nextStatus,
+        )
+      ) {
         throw new AppError(
           "INVALID_STATUS_TRANSITION",
           409,
@@ -994,13 +1119,21 @@ export async function updatePackageStatus(
           (${packageId}, ${existing.status}, ${nextStatus}, ${userId}, now())
       `;
 
-      await assignPayableTask({
-        tx: trx,
+      const tasks = buildTaskAssignmentsForStatusChange({
         packageRecord: existing,
         nextStatus,
-        workerName,
-        userId,
+        workerName: input.workerName,
+        readyForPickupDetails: input.readyForPickupDetails,
       });
+
+      for (const task of tasks) {
+        await assignTask({
+          tx: trx,
+          packageRecord: existing,
+          task,
+          userId,
+        });
+      }
 
       const row = rows[0] as Record<string, unknown>;
       return {
@@ -1047,6 +1180,51 @@ export async function updatePackageStatus(
     skipped: false,
     notifications,
   };
+}
+
+export async function updatePackagePaymentStatus(
+  packageId: string,
+  nextStatus: Extract<PaymentStatus, "UNPAID" | "PAID">,
+): Promise<PackageRecord> {
+  const updatedPackage = await withDbConnectionRetry(async () => {
+    const sql = getDb();
+    return sql.begin(async (tx) => {
+      const trx = tx as unknown as ReturnType<typeof getDb>;
+      const packageRows = await trx`
+        select p.*, w.status as week_status
+        from packages p
+        join processing_weeks w on w.id = p.week_id
+        where p.id = ${packageId}
+        for update
+      `;
+
+      if (packageRows.length === 0) {
+        throw new AppError("PACKAGE_NOT_FOUND", 404, "Package not found.");
+      }
+
+      const existing = mapPackage(packageRows[0] as Record<string, unknown>);
+      const rows = await trx`
+        update packages
+        set
+          payment_status = ${nextStatus},
+          payment_source = 'MANUAL',
+          payment_paid_at = ${nextStatus === "PAID" ? new Date().toISOString() : null},
+          updated_at = now()
+        where id = ${packageId}
+        returning *
+      `;
+
+      return mapPackage({
+        ...(rows[0] as Record<string, unknown>),
+        week_status: existing.week_status,
+        last_delivery_state: existing.last_delivery_state,
+        last_notification_at: existing.last_notification_at,
+      });
+    });
+  });
+
+  invalidatePackagesListCache();
+  return updatedPackage;
 }
 
 export async function retryPackageNotifications(

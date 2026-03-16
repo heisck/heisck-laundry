@@ -30,16 +30,10 @@ const NAV_ITEMS: NavItem[] = [
     description: "Create orders, track statuses, and resend failed SMS.",
   },
   {
-    href: "/admin/weeks",
-    label: "Weeks",
-    short: "WKS",
-    description: "Open and close payout weeks with clearer controls.",
-  },
-  {
     href: "/admin/summary",
     label: "Summary",
     short: "SUM",
-    description: "Review revenue, worker totals, and export reports.",
+    description: "Review operations, worker totals, and export reports.",
   },
 ];
 

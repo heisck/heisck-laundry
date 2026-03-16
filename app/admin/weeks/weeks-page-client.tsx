@@ -293,12 +293,6 @@ export function WeeksPageClient({
                   <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs">
                     {week.package_count ?? 0} packages
                   </span>
-                  <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs">
-                    {week.total_weight_kg?.toFixed(2) ?? "0.00"} kg
-                  </span>
-                  <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs">
-                    GHS {week.total_price_ghs?.toFixed(2) ?? "0.00"}
-                  </span>
                 </div>
               </article>
             ))}

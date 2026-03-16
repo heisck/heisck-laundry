@@ -5,24 +5,24 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
   calculatePackagePricing,
-  getPackageTypeLabel,
   getPackageTypeOptionLabel,
   getSuggestedEtaDate,
 } from "@/lib/package-pricing";
 import {
   getOwnerSideLabel,
   getPayableTaskForStatus,
+  requiresReadyForPickupDetails,
   getTaskLabel,
   getWorkerLabel,
 } from "@/lib/payouts";
-import { getStatusLabel } from "@/lib/status";
+import { getStatusLabel, getStatusOptionsForPackage } from "@/lib/status";
 import { formatAccraDateTime } from "@/lib/time";
 import {
   LAUNDRY_WORKERS,
-  PACKAGE_STATUSES,
   PACKAGE_TYPES,
   type LaundryWorker,
   type PackageRecord,
+  type PaymentStatus,
   type PackageStatus,
   type PackageType,
   type ProcessingWeek,
@@ -49,6 +49,7 @@ interface CreatePackageForm {
   customerName: string;
   roomNumber: string;
   packageType: PackageType;
+  workerName: LaundryWorker;
   clothesCount: string;
   totalWeightKg: string;
   primaryPhone: string;
@@ -83,13 +84,17 @@ interface StatusDialogState {
   packageType: PackageType;
   currentStatus: PackageStatus;
   nextStatus: PackageStatus;
-  workerName: LaundryWorker;
+  workerName: LaundryWorker | "";
+  removeWorkerName: LaundryWorker | "";
+  foldCompleted: boolean | null;
+  foldWorkerName: LaundryWorker | "";
 }
 
 type BusyAction =
   | null
   | "refresh"
   | "createPackage"
+  | "updatePayment"
   | "updateStatus"
   | "retrySms";
 type PendingStatusUpdate = {
@@ -97,7 +102,6 @@ type PendingStatusUpdate = {
   nextStatus: PackageStatus;
 } | null;
 type StatusDrafts = Record<string, PackageStatus>;
-type WorkerDrafts = Record<string, LaundryWorker>;
 
 const PACKAGES_BOOTSTRAP_STORAGE_KEY = "heisck.admin.packages.bootstrap";
 
@@ -109,10 +113,14 @@ const STATUS_ORDER: Record<PackageStatus, number> = {
   PICKED_UP: 4,
 };
 
+const PAYMENT_STATUS_OPTIONS = ["ALL", "UNPAID", "PENDING", "PAID"] as const;
+type PaymentStatusFilter = (typeof PAYMENT_STATUS_OPTIONS)[number];
+
 const initialPackageForm: CreatePackageForm = {
   customerName: "",
   roomNumber: "",
   packageType: "NORMAL_WASH_DRY",
+  workerName: "NOBODY",
   clothesCount: "",
   totalWeightKg: "",
   primaryPhone: "",
@@ -133,13 +141,6 @@ function matchesSearch(record: PackageRecord, query: string): boolean {
   );
 }
 
-function statusOptionsFor(current: PackageStatus): PackageStatus[] {
-  return PACKAGE_STATUSES.filter(
-    (status) =>
-      status === current || STATUS_ORDER[status] > STATUS_ORDER[current],
-  );
-}
-
 function statusPill(status: PackageStatus): string {
   if (status === "PICKED_UP") {
     return "bg-emerald-100 text-emerald-700";
@@ -154,6 +155,52 @@ function statusPill(status: PackageStatus): string {
     return "bg-indigo-100 text-indigo-700";
   }
   return "bg-slate-100 text-slate-700";
+}
+
+function getCompactPackageTypeLabel(packageType: PackageType): string {
+  if (packageType === "NORMAL_WASH_DRY") {
+    return "Normal";
+  }
+  if (packageType === "EXPRESS_WASH_DRY") {
+    return "Express";
+  }
+  return "Wash Only";
+}
+
+function getCompactStatusLabel(status: PackageStatus): string {
+  if (status === "READY_FOR_PICKUP") {
+    return "Ready";
+  }
+  if (status === "PICKED_UP") {
+    return "Picked Up";
+  }
+  if (status === "WASHING") {
+    return "Washing";
+  }
+  if (status === "DRYING") {
+    return "Drying";
+  }
+  return "Received";
+}
+
+function paymentPill(status: PaymentStatus): string {
+  if (status === "PAID") {
+    return "bg-emerald-100 text-emerald-700";
+  }
+  if (status === "PENDING") {
+    return "bg-amber-100 text-amber-700";
+  }
+  return "bg-slate-100 text-slate-700";
+}
+
+function getCompactPaymentLabel(status: PaymentStatus): string {
+  if (status === "PAID") {
+    return "Paid";
+  }
+  if (status === "PENDING") {
+    return "Pending";
+  }
+  return "Not Paid";
 }
 
 function canRetrySms(deliveryState: string | null): boolean {
@@ -233,6 +280,8 @@ export function PackagesPageClient({
   const [allPackages, setAllPackages] = useState<PackageRecord[]>(initialPackages);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<PackageStatus | "ALL">("ALL");
+  const [paymentFilter, setPaymentFilter] =
+    useState<PaymentStatusFilter>("ALL");
   const [sortDescending, setSortDescending] = useState(false);
   const [createForm, setCreateForm] = useState<CreatePackageForm>({
     ...initialPackageForm,
@@ -247,7 +296,6 @@ export function PackagesPageClient({
     string | null
   >(null);
   const [statusDrafts, setStatusDrafts] = useState<StatusDrafts>({});
-  const [workerDrafts, setWorkerDrafts] = useState<WorkerDrafts>({});
   const [statusDialog, setStatusDialog] = useState<StatusDialogState | null>(null);
   const initRef = useRef(false);
 
@@ -271,7 +319,9 @@ export function PackagesPageClient({
   const visiblePackages = useMemo(() => {
     const filtered = allPackages.filter((record) => {
       const matchesStatus = statusFilter === "ALL" || record.status === statusFilter;
-      return matchesStatus && matchesSearch(record, search.trim());
+      const matchesPayment =
+        paymentFilter === "ALL" || record.payment_status === paymentFilter;
+      return matchesStatus && matchesPayment && matchesSearch(record, search.trim());
     });
 
     return filtered.sort((a, b) => {
@@ -282,26 +332,16 @@ export function PackagesPageClient({
       const createdDelta = new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
       return sortDescending ? -createdDelta : createdDelta;
     });
-  }, [allPackages, search, statusFilter, sortDescending]);
+  }, [allPackages, paymentFilter, search, sortDescending, statusFilter]);
 
   const displayedMetrics = useMemo(() => {
     const packageCount = visiblePackages.length;
-    const totalKg = visiblePackages.reduce(
-      (sum, item) => sum + item.total_weight_kg,
-      0,
-    );
-    const totalRevenue = visiblePackages.reduce(
-      (sum, item) => sum + item.total_price_ghs,
-      0,
-    );
     const readyCount = visiblePackages.filter(
       (item) => item.status === "READY_FOR_PICKUP",
     ).length;
 
     return {
       packageCount,
-      totalKg,
-      totalRevenue,
       readyCount,
     };
   }, [visiblePackages]);
@@ -310,17 +350,6 @@ export function PackagesPageClient({
     const weightKg = Number(createForm.totalWeightKg);
     return calculatePackagePricing(weightKg, createForm.packageType);
   }, [createForm.packageType, createForm.totalWeightKg]);
-
-  const statusDialogTask = useMemo(() => {
-    if (!statusDialog) {
-      return null;
-    }
-
-    return getPayableTaskForStatus(
-      statusDialog.packageType,
-      statusDialog.nextStatus,
-    );
-  }, [statusDialog]);
 
   function showLoadingToast(title: string, message: string): number {
     return pushToast("loading", title, message, { persist: true });
@@ -435,6 +464,7 @@ export function PackagesPageClient({
             customerName: createForm.customerName,
             roomNumber: createForm.roomNumber,
             packageType: createForm.packageType,
+            workerName: createForm.workerName,
             clothesCount: createForm.clothesCount,
             totalWeightKg: createForm.totalWeightKg,
             primaryPhone: createForm.primaryPhone,
@@ -453,6 +483,7 @@ export function PackagesPageClient({
 
       setCreateForm({
         ...initialPackageForm,
+        workerName: createForm.workerName,
         etaAt: toLocalDatetimeValue(getSuggestedEtaDate("NORMAL_WASH_DRY")),
       });
       setLastCreated({
@@ -502,43 +533,39 @@ export function PackagesPageClient({
     return statusDrafts[pkg.id] ?? pkg.status;
   }
 
-  function getSelectedWorker(packageId: string): LaundryWorker {
-    return workerDrafts[packageId] ?? "NOBODY";
-  }
+  function handleStatusSelect(pkg: PackageRecord, nextStatus: PackageStatus) {
+    setStatusDrafts((prev) => ({
+      ...prev,
+      [pkg.id]: nextStatus,
+    }));
 
-  function handleOpenStatusDialog(pkg: PackageRecord) {
-    const nextStatus = getSelectedStatus(pkg);
     if (nextStatus === pkg.status) {
       return;
     }
 
-    setStatusDialog({
-      packageId: pkg.id,
-      orderId: pkg.order_id,
-      packageType: pkg.package_type,
-      currentStatus: pkg.status,
-      nextStatus,
-      workerName: getSelectedWorker(pkg.id),
-    });
-  }
-
-  async function handleConfirmStatusDialog() {
-    if (!statusDialog) {
+    if (
+      requiresReadyForPickupDetails(pkg.package_type, nextStatus) ||
+      getPayableTaskForStatus(pkg.package_type, nextStatus)
+    ) {
+      setStatusDialog({
+        packageId: pkg.id,
+        orderId: pkg.order_id,
+        packageType: pkg.package_type,
+        currentStatus: pkg.status,
+        nextStatus,
+        workerName: "",
+        removeWorkerName: "",
+        foldCompleted: pkg.package_type === "EXPRESS_WASH_DRY" ? false : null,
+        foldWorkerName: "",
+      });
       return;
     }
 
-    await handleStatusChange(
-      statusDialog.packageId,
-      statusDialog.orderId,
-      statusDialog.nextStatus,
-      statusDialog.workerName,
-    );
+    void handleStatusChange(pkg.id, pkg.order_id, nextStatus, {});
   }
 
   function renderStatusUpdateControls(pkg: PackageRecord) {
     const selectedStatus = getSelectedStatus(pkg);
-    const payableTask = getPayableTaskForStatus(pkg.package_type, selectedStatus);
-    const needsWorker = selectedStatus !== pkg.status && payableTask !== null;
 
     return (
       <>
@@ -546,45 +573,96 @@ export function PackagesPageClient({
           value={selectedStatus}
           disabled={isBusy || pkg.status === "PICKED_UP"}
           onChange={(event) =>
-            setStatusDrafts((prev) => ({
-              ...prev,
-              [pkg.id]: event.target.value as PackageStatus,
-            }))
+            handleStatusSelect(pkg, event.target.value as PackageStatus)
           }
-          className="input-control py-2 text-xs"
+          className="input-control min-w-0 py-2 text-[0.74rem]"
         >
-          {statusOptionsFor(pkg.status).map((status) => (
+          {getStatusOptionsForPackage(pkg.package_type, pkg.status).map((status) => (
             <option key={status} value={status}>
-              {getStatusLabel(status)}
+              {getCompactStatusLabel(status)}
             </option>
           ))}
         </select>
-        {needsWorker ? (
-          <p className="mt-2 text-xs leading-5 text-slate-500">
-            Worker selection opens in the next step for{" "}
-            {getTaskLabel(payableTask.taskType)}.
-          </p>
-        ) : null}
-        {selectedStatus !== pkg.status ? (
+        <p className="mt-2 text-xs leading-5 text-slate-500">
+          Status saves right away. Worker details only show when that step needs payout info.
+        </p>
+      </>
+    );
+  }
+
+  async function handlePaymentStatusChange(
+    packageId: string,
+    orderId: string,
+    paymentStatus: Extract<PaymentStatus, "UNPAID" | "PAID">,
+  ) {
+    setBusyAction("updatePayment");
+    const loadingToastId = showLoadingToast(
+      paymentStatus === "PAID" ? "Marking paid" : "Marking not paid",
+      `${orderId} payment is being updated.`,
+    );
+
+    try {
+      const response = await fetchWithTimeout(
+        `/api/admin/packages/${packageId}/payment`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ paymentStatus }),
+        },
+        20000,
+      );
+      const payload = await parseApiResponse<{ package: PackageRecord }>(response);
+
+      setAllPackages((prev) =>
+        prev.map((row) => (row.id === packageId ? payload.package : row)),
+      );
+      pushToast(
+        "success",
+        paymentStatus === "PAID" ? "Marked paid" : "Marked not paid",
+        payload.package.order_id,
+      );
+    } catch (error) {
+      pushToast(
+        "error",
+        "Failed to update payment",
+        error instanceof Error ? error.message : "Unknown error",
+      );
+    } finally {
+      dismissToast(loadingToastId);
+      setBusyAction(null);
+    }
+  }
+
+  function renderPaymentControls(pkg: PackageRecord) {
+    return (
+      <div className="space-y-2">
+        <span
+          className={cn(
+            "status-chip",
+            paymentPill(pkg.payment_status),
+          )}
+        >
+          {getCompactPaymentLabel(pkg.payment_status)}
+        </span>
+        <div className="flex flex-wrap gap-2">
           <button
             type="button"
-            onClick={() =>
-              needsWorker
-                ? handleOpenStatusDialog(pkg)
-                : void handleStatusChange(
-                    pkg.id,
-                    pkg.order_id,
-                    selectedStatus,
-                    "NOBODY",
-                  )
-            }
-            disabled={isBusy}
-            className="btn btn-secondary mt-2 w-full"
+            onClick={() => void handlePaymentStatusChange(pkg.id, pkg.order_id, "PAID")}
+            disabled={isBusy || pkg.payment_status === "PAID"}
+            className="btn btn-secondary px-3 py-2 text-[0.72rem]"
           >
-            {needsWorker ? "Choose Worker" : "Apply Status"}
+            Paid
           </button>
-        ) : null}
-      </>
+          <button
+            type="button"
+            onClick={() => void handlePaymentStatusChange(pkg.id, pkg.order_id, "UNPAID")}
+            disabled={isBusy || pkg.payment_status === "UNPAID"}
+            className="btn btn-secondary px-3 py-2 text-[0.72rem]"
+          >
+            Not Paid
+          </button>
+        </div>
+      </div>
     );
   }
 
@@ -611,11 +689,81 @@ export function PackagesPageClient({
     );
   }
 
+  function submitStatusDialog(nextDialog: StatusDialogState) {
+    if (nextDialog.nextStatus === "READY_FOR_PICKUP") {
+      if (nextDialog.packageType === "NORMAL_WASH_DRY") {
+        if (
+          nextDialog.foldCompleted === null ||
+          !nextDialog.removeWorkerName ||
+          (nextDialog.foldCompleted && !nextDialog.foldWorkerName)
+        ) {
+          return;
+        }
+
+        void handleStatusChange(
+          nextDialog.packageId,
+          nextDialog.orderId,
+          nextDialog.nextStatus,
+          {
+            readyForPickupDetails: {
+              removeWorkerName: nextDialog.removeWorkerName as LaundryWorker,
+              foldCompleted: nextDialog.foldCompleted,
+              foldWorkerName: nextDialog.foldCompleted
+                ? (nextDialog.foldWorkerName as LaundryWorker)
+                : undefined,
+            },
+          },
+        );
+        return;
+      }
+
+      if (nextDialog.packageType === "EXPRESS_WASH_DRY") {
+        if (!nextDialog.removeWorkerName) {
+          return;
+        }
+
+        void handleStatusChange(
+          nextDialog.packageId,
+          nextDialog.orderId,
+          nextDialog.nextStatus,
+          {
+            readyForPickupDetails: {
+              removeWorkerName: nextDialog.removeWorkerName as LaundryWorker,
+            },
+          },
+        );
+        return;
+      }
+    }
+
+    if (!getPayableTaskForStatus(nextDialog.packageType, nextDialog.nextStatus)) {
+      return;
+    }
+
+    if (!nextDialog.workerName) {
+      return;
+    }
+
+    void handleStatusChange(
+      nextDialog.packageId,
+      nextDialog.orderId,
+      nextDialog.nextStatus,
+      { workerName: nextDialog.workerName as LaundryWorker },
+    );
+  }
+
   async function handleStatusChange(
     packageId: string,
     orderId: string,
     nextStatus: PackageStatus,
-    workerName: LaundryWorker,
+    input: {
+      workerName?: LaundryWorker;
+      readyForPickupDetails?: {
+        removeWorkerName?: LaundryWorker;
+        foldCompleted?: boolean;
+        foldWorkerName?: LaundryWorker;
+      };
+    },
   ) {
     setBusyAction("updateStatus");
     setPendingStatusUpdate({ packageId, nextStatus });
@@ -629,7 +777,11 @@ export function PackagesPageClient({
         {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ status: nextStatus, workerName }),
+          body: JSON.stringify({
+            status: nextStatus,
+            workerName: input.workerName,
+            readyForPickupDetails: input.readyForPickupDetails,
+          }),
         },
         30000,
       );
@@ -648,10 +800,6 @@ export function PackagesPageClient({
       setStatusDrafts((prev) => ({
         ...prev,
         [packageId]: payload.package.status,
-      }));
-      setWorkerDrafts((prev) => ({
-        ...prev,
-        [packageId]: "NOBODY",
       }));
       setStatusDialog(null);
 
@@ -680,6 +828,14 @@ export function PackagesPageClient({
         );
       }
     } catch (error) {
+      const currentStatus =
+        allPackages.find((item) => item.id === packageId)?.status ?? null;
+      if (currentStatus) {
+        setStatusDrafts((prev) => ({
+          ...prev,
+          [packageId]: currentStatus,
+        }));
+      }
       pushToast(
         "error",
         "Failed to update status",
@@ -789,16 +945,14 @@ export function PackagesPageClient({
           </p>
         </article>
         <article className="metric-tile px-5 py-5">
-          <p className="label-kicker">Total Weight</p>
-          <p className="font-display mt-3 text-3xl font-semibold text-slate-950">
-            {displayedMetrics.totalKg.toFixed(2)} kg
+          <p className="label-kicker">Active Week</p>
+          <p className="mt-3 text-lg font-semibold text-slate-950">
+            {currentWeek?.label ?? "No active week"}
           </p>
         </article>
         <article className="metric-tile px-5 py-5">
-          <p className="label-kicker">Total Revenue</p>
-          <p className="font-display mt-3 text-3xl font-semibold text-slate-950">
-            GHS {displayedMetrics.totalRevenue.toFixed(2)}
-          </p>
+          <p className="label-kicker">Time Left</p>
+          <p className="mt-3 text-lg font-semibold text-slate-950">{currentWeekRemaining}</p>
         </article>
         <article className="metric-tile px-5 py-5">
           <p className="label-kicker">Ready for Pickup</p>
@@ -849,6 +1003,22 @@ export function PackagesPageClient({
               {PACKAGE_TYPES.map((packageType) => (
                 <option key={packageType} value={packageType}>
                   {getPackageTypeOptionLabel(packageType)}
+                </option>
+              ))}
+            </select>
+            <select
+              value={createForm.workerName}
+              onChange={(event) =>
+                setCreateForm((prev) => ({
+                  ...prev,
+                  workerName: event.target.value as LaundryWorker,
+                }))
+              }
+              className="input-control"
+            >
+              {LAUNDRY_WORKERS.map((worker) => (
+                <option key={worker} value={worker}>
+                  Intake Worker: {getWorkerLabel(worker)}
                 </option>
               ))}
             </select>
@@ -929,7 +1099,7 @@ export function PackagesPageClient({
               </button>
               {!currentWeek ? (
                 <p className="w-full text-xs text-amber-700">
-                  Start a processing week on the Weeks page before creating packages.
+                  Start a processing week on /admin/private before creating packages.
                 </p>
               ) : null}
             </div>
@@ -994,9 +1164,23 @@ export function PackagesPageClient({
                 className="input-control min-w-[180px]"
               >
                 <option value="ALL">All statuses</option>
-                {PACKAGE_STATUSES.map((status) => (
+                {(Object.keys(STATUS_ORDER) as PackageStatus[]).map((status) => (
                   <option key={status} value={status}>
-                    {getStatusLabel(status)}
+                    {getCompactStatusLabel(status)}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={paymentFilter}
+                onChange={(event) =>
+                  setPaymentFilter(event.target.value as PaymentStatusFilter)
+                }
+                className="input-control min-w-[180px]"
+              >
+                <option value="ALL">All payments</option>
+                {PAYMENT_STATUS_OPTIONS.filter((status) => status !== "ALL").map((status) => (
+                  <option key={status} value={status}>
+                    {getCompactPaymentLabel(status)}
                   </option>
                 ))}
               </select>
@@ -1024,7 +1208,7 @@ export function PackagesPageClient({
                   </p>
                 </div>
                 <span className={cn("status-chip", statusPill(pkg.status))}>
-                  {getStatusLabel(pkg.status)}
+                  {getCompactStatusLabel(pkg.status)}
                 </span>
               </div>
 
@@ -1032,7 +1216,7 @@ export function PackagesPageClient({
                 <div className="surface-subtle px-4 py-3">
                   <p className="label-kicker">Package</p>
                   <p className="mt-2 text-sm font-semibold text-slate-950">
-                    {getPackageTypeLabel(pkg.package_type)}
+                    {getCompactPackageTypeLabel(pkg.package_type)}
                   </p>
                 </div>
                 <div className="surface-subtle px-4 py-3">
@@ -1044,8 +1228,12 @@ export function PackagesPageClient({
                 <div className="surface-subtle px-4 py-3">
                   <p className="label-kicker">Price</p>
                   <p className="mt-2 text-sm font-semibold text-slate-950">
-                    GHS {pkg.total_price_ghs.toFixed(2)}
+                    {pkg.total_price_ghs.toFixed(2)}
                   </p>
+                </div>
+                <div className="surface-subtle px-4 py-3">
+                  <p className="label-kicker">Payment</p>
+                  <div className="mt-2">{renderPaymentControls(pkg)}</div>
                 </div>
                 <div className="surface-subtle px-4 py-3">
                   <p className="label-kicker">SMS</p>
@@ -1067,7 +1255,7 @@ export function PackagesPageClient({
         </div>
 
         <div className="table-wrap hidden md:block">
-          <table className="data-table min-w-[980px]">
+          <table className="data-table min-w-[1020px]">
             <thead>
               <tr className="text-left">
                 <th className="font-semibold">Order</th>
@@ -1078,8 +1266,9 @@ export function PackagesPageClient({
                 <th className="font-semibold">Room</th>
                 <th className="font-semibold">Weight</th>
                 <th className="font-semibold">Price</th>
+                <th className="w-[11rem] min-w-[11rem] font-semibold">Payment</th>
                 <th className="font-semibold">Status</th>
-                <th className="w-[20rem] min-w-[20rem] font-semibold">Update</th>
+                <th className="w-[10rem] min-w-[10rem] font-semibold">Update</th>
                 <th className="w-[13rem] min-w-[13rem] font-semibold">SMS</th>
               </tr>
             </thead>
@@ -1088,12 +1277,15 @@ export function PackagesPageClient({
                 <tr key={pkg.id} className="text-slate-700 transition">
                   <td className="font-semibold text-slate-900">{pkg.order_id}</td>
                   <td>{pkg.customer_name}</td>
-                  <td>{getPackageTypeLabel(pkg.package_type)}</td>
+                  <td className="whitespace-nowrap">{getCompactPackageTypeLabel(pkg.package_type)}</td>
                   <td>{pkg.primary_phone}</td>
                   <td>{pkg.clothes_count}</td>
                   <td>{pkg.room_number}</td>
                   <td>{pkg.total_weight_kg.toFixed(2)} kg</td>
-                  <td>GHS {pkg.total_price_ghs.toFixed(2)}</td>
+                  <td className="whitespace-nowrap">{pkg.total_price_ghs.toFixed(2)}</td>
+                  <td className="w-[11rem] min-w-[11rem]">
+                    {renderPaymentControls(pkg)}
+                  </td>
                   <td>
                     <span
                       className={cn(
@@ -1101,10 +1293,10 @@ export function PackagesPageClient({
                         statusPill(pkg.status),
                       )}
                     >
-                      {getStatusLabel(pkg.status)}
+                      {getCompactStatusLabel(pkg.status)}
                     </span>
                   </td>
-                  <td className="w-[20rem] min-w-[20rem]">
+                  <td className="w-[10rem] min-w-[10rem]">
                     {renderStatusUpdateControls(pkg)}
                   </td>
                   <td className="w-[13rem] min-w-[13rem]">
@@ -1114,7 +1306,7 @@ export function PackagesPageClient({
               ))}
               {visiblePackages.length === 0 ? (
                 <tr>
-                  <td colSpan={11} className="py-10 text-center text-slate-500">
+                  <td colSpan={12} className="py-10 text-center text-slate-500">
                     No packages match the current live filters.
                   </td>
                 </tr>
@@ -1133,7 +1325,7 @@ export function PackagesPageClient({
                 {statusDialog.orderId}
               </h3>
               <p className="mt-2 text-sm leading-6 text-slate-600">
-                Confirm the next status and assign the worker outside the table layout.
+                This step saves automatically as soon as the needed worker details are filled.
               </p>
             </div>
 
@@ -1147,50 +1339,169 @@ export function PackagesPageClient({
                 </div>
                 <div className="metric-tile p-4">
                   <p className="label-kicker">Next Status</p>
-                  <select
-                    value={statusDialog.nextStatus}
-                    disabled={isBusy}
-                    onChange={(event) => {
-                      const nextStatus = event.target.value as PackageStatus;
-                      const nextTask = getPayableTaskForStatus(
-                        statusDialog.packageType,
-                        nextStatus,
-                      );
-
-                      setStatusDrafts((prev) => ({
-                        ...prev,
-                        [statusDialog.packageId]: nextStatus,
-                      }));
-                      setStatusDialog((prev) =>
-                        prev
-                          ? {
-                              ...prev,
-                              nextStatus,
-                              workerName: nextTask ? prev.workerName : "NOBODY",
-                            }
-                          : prev,
-                      );
-                    }}
-                    className="input-control mt-3"
-                  >
-                    {statusOptionsFor(statusDialog.currentStatus).map((status) => (
-                      <option key={status} value={status}>
-                        {getStatusLabel(status)}
-                      </option>
-                    ))}
-                  </select>
+                  <p className="mt-2 text-lg font-semibold text-slate-950">
+                    {getStatusLabel(statusDialog.nextStatus)}
+                  </p>
                 </div>
               </div>
 
-              {statusDialogTask ? (
+              {statusDialog.nextStatus === "READY_FOR_PICKUP" &&
+              statusDialog.packageType === "NORMAL_WASH_DRY" ? (
+                <div className="grid gap-4">
+                  <div className="metric-tile p-4">
+                    <p className="label-kicker">Paid Tasks</p>
+                    <p className="mt-2 text-lg font-semibold text-slate-950">
+                      Removed From Line
+                      {statusDialog.foldCompleted ? " + Folded" : ""}
+                    </p>
+                    <p className="mt-2 text-sm leading-6 text-slate-600">
+                      Your side covers this ready-for-pickup work.
+                    </p>
+                  </div>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="metric-tile p-4">
+                      <p className="label-kicker">Remove Worker</p>
+                      <select
+                        value={statusDialog.removeWorkerName}
+                        disabled={isBusy}
+                        onChange={(event) => {
+                          const nextDialog = {
+                            ...statusDialog,
+                            removeWorkerName: event.target.value as LaundryWorker,
+                          };
+                          setStatusDialog(nextDialog);
+                          submitStatusDialog(nextDialog);
+                        }}
+                        className="input-control mt-3"
+                      >
+                        <option value="">Choose worker</option>
+                        {LAUNDRY_WORKERS.map((worker) => (
+                          <option key={worker} value={worker}>
+                            {getWorkerLabel(worker)}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="metric-tile p-4">
+                      <p className="label-kicker">Folded?</p>
+                      <select
+                        value={
+                          statusDialog.foldCompleted === null
+                            ? ""
+                            : statusDialog.foldCompleted
+                              ? "YES"
+                              : "NO"
+                        }
+                        disabled={isBusy}
+                        onChange={(event) => {
+                          const foldCompleted = event.target.value === "YES";
+                          const nextDialog = {
+                            ...statusDialog,
+                            foldCompleted:
+                              event.target.value === ""
+                                ? null
+                                : foldCompleted,
+                          };
+                          setStatusDialog(nextDialog);
+                          submitStatusDialog(nextDialog);
+                        }}
+                        className="input-control mt-3"
+                      >
+                        <option value="">Choose fold step</option>
+                        <option value="NO">No</option>
+                        <option value="YES">Yes</option>
+                      </select>
+                    </div>
+                  </div>
+                  {statusDialog.foldCompleted ? (
+                    <div className="metric-tile p-4">
+                      <p className="label-kicker">Fold Worker</p>
+                      <select
+                        value={statusDialog.foldWorkerName}
+                        disabled={isBusy}
+                        onChange={(event) => {
+                          const nextDialog = {
+                            ...statusDialog,
+                            foldWorkerName: event.target.value as LaundryWorker,
+                          };
+                          setStatusDialog(nextDialog);
+                          submitStatusDialog(nextDialog);
+                        }}
+                        className="input-control mt-3"
+                      >
+                        <option value="">Choose worker</option>
+                        {LAUNDRY_WORKERS.map((worker) => (
+                          <option key={worker} value={worker}>
+                            {getWorkerLabel(worker)}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  ) : null}
+                </div>
+              ) : statusDialog.nextStatus === "READY_FOR_PICKUP" &&
+                statusDialog.packageType === "EXPRESS_WASH_DRY" ? (
                 <div className="grid gap-4 md:grid-cols-[1.1fr_0.9fr]">
                   <div className="metric-tile p-4">
                     <p className="label-kicker">Paid Task</p>
                     <p className="mt-2 text-lg font-semibold text-slate-950">
-                      {getTaskLabel(statusDialogTask.taskType)}
+                      Removed and Folded From Dryer
                     </p>
                     <p className="mt-2 text-sm leading-6 text-slate-600">
-                      Owner side: {getOwnerSideLabel(statusDialogTask.ownerSide)}
+                      Owner side: {getOwnerSideLabel("PARTNER_SIDE")}
+                    </p>
+                  </div>
+
+                  <div className="metric-tile p-4">
+                    <p className="label-kicker">Worker</p>
+                    <select
+                      value={statusDialog.removeWorkerName}
+                      disabled={isBusy}
+                      onChange={(event) => {
+                        const nextDialog = {
+                          ...statusDialog,
+                          removeWorkerName: event.target.value as LaundryWorker,
+                        };
+                        setStatusDialog(nextDialog);
+                        submitStatusDialog(nextDialog);
+                      }}
+                      className="input-control mt-3"
+                      >
+                        <option value="">Choose worker</option>
+                        {LAUNDRY_WORKERS.map((worker) => (
+                          <option key={worker} value={worker}>
+                            {getWorkerLabel(worker)}
+                          </option>
+                        ))}
+                    </select>
+                  </div>
+                </div>
+              ) : getPayableTaskForStatus(
+                statusDialog.packageType,
+                statusDialog.nextStatus,
+              ) ? (
+                <div className="grid gap-4 md:grid-cols-[1.1fr_0.9fr]">
+                  <div className="metric-tile p-4">
+                    <p className="label-kicker">Paid Task</p>
+                    <p className="mt-2 text-lg font-semibold text-slate-950">
+                      {
+                        getTaskLabel(
+                          getPayableTaskForStatus(
+                            statusDialog.packageType,
+                            statusDialog.nextStatus,
+                          )!.taskType,
+                        )
+                      }
+                    </p>
+                    <p className="mt-2 text-sm leading-6 text-slate-600">
+                      Owner side: {
+                        getOwnerSideLabel(
+                          getPayableTaskForStatus(
+                            statusDialog.packageType,
+                            statusDialog.nextStatus,
+                          )!.ownerSide,
+                        )
+                      }
                     </p>
                   </div>
 
@@ -1200,17 +1511,16 @@ export function PackagesPageClient({
                       value={statusDialog.workerName}
                       disabled={isBusy}
                       onChange={(event) => {
-                        const workerName = event.target.value as LaundryWorker;
-                        setWorkerDrafts((prev) => ({
-                          ...prev,
-                          [statusDialog.packageId]: workerName,
-                        }));
-                        setStatusDialog((prev) =>
-                          prev ? { ...prev, workerName } : prev,
-                        );
+                        const nextDialog = {
+                          ...statusDialog,
+                          workerName: event.target.value as LaundryWorker,
+                        };
+                        setStatusDialog(nextDialog);
+                        submitStatusDialog(nextDialog);
                       }}
                       className="input-control mt-3"
                     >
+                      <option value="">Choose worker</option>
                       {LAUNDRY_WORKERS.map((worker) => (
                         <option key={worker} value={worker}>
                           {getWorkerLabel(worker)}
@@ -1234,19 +1544,17 @@ export function PackagesPageClient({
               <div className="flex flex-wrap justify-end gap-3">
                 <button
                   type="button"
-                  onClick={() => setStatusDialog(null)}
+                  onClick={() => {
+                    setStatusDrafts((prev) => ({
+                      ...prev,
+                      [statusDialog.packageId]: statusDialog.currentStatus,
+                    }));
+                    setStatusDialog(null);
+                  }}
                   disabled={isBusy}
                   className="btn btn-secondary"
                 >
                   Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void handleConfirmStatusDialog()}
-                  disabled={isBusy}
-                  className="btn btn-primary"
-                >
-                  {busyAction === "updateStatus" ? "Saving..." : "Confirm Status Update"}
                 </button>
               </div>
             </div>

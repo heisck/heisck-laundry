@@ -67,10 +67,10 @@ export function buildWeekCsv(snapshot: WeekSnapshot): string {
   lines.push(`Total Price (GHS),${csvEscape(snapshot.report.total_price_ghs.toFixed(2))}`);
   lines.push(`Wash Only Packages,${csvEscape(snapshot.package_type_summary.wash_only_count)}`);
   lines.push(
-    `Normal Wash & Dry Packages,${csvEscape(snapshot.package_type_summary.normal_wash_dry_count)}`,
+    `Normal Packages,${csvEscape(snapshot.package_type_summary.normal_wash_dry_count)}`,
   );
   lines.push(
-    `Express Wash & Dry Packages,${csvEscape(snapshot.package_type_summary.express_wash_dry_count)}`,
+    `Express Packages,${csvEscape(snapshot.package_type_summary.express_wash_dry_count)}`,
   );
 
   lines.push("");
@@ -96,10 +96,13 @@ export function buildWeekCsv(snapshot: WeekSnapshot): string {
   lines.push(
     [
       "Worker",
+      "Intake",
       "Washing",
       "Drying Downstairs",
       "Removed From Line",
+      "Folded",
       "Dryer Operation",
+      "Express Remove + Fold",
       "Your Side Total (GHS)",
       "Partner Side Total (GHS)",
       "Grand Total (GHS)",
@@ -109,10 +112,13 @@ export function buildWeekCsv(snapshot: WeekSnapshot): string {
     lines.push(
       [
         getWorkerLabel(summary.worker_name),
+        summary.intake_count,
         summary.washing_count,
         summary.drying_downstairs_count,
         summary.removed_from_line_count,
+        summary.folded_count,
         summary.dryer_operation_count,
+        summary.removed_and_folded_from_dryer_count,
         summary.your_side_total_ghs.toFixed(2),
         summary.partner_side_total_ghs.toFixed(2),
         summary.grand_total_ghs.toFixed(2),
@@ -215,11 +221,11 @@ export async function buildWeekPdf(snapshot: WeekSnapshot): Promise<Uint8Array> 
       value: String(snapshot.package_type_summary.wash_only_count),
     },
     {
-      label: "Normal Wash & Dry Packages",
+      label: "Normal Packages",
       value: String(snapshot.package_type_summary.normal_wash_dry_count),
     },
     {
-      label: "Express Wash & Dry Packages",
+      label: "Express Packages",
       value: String(snapshot.package_type_summary.express_wash_dry_count),
     },
   ];
@@ -264,10 +270,15 @@ export async function buildWeekPdf(snapshot: WeekSnapshot): Promise<Uint8Array> 
   writeLine("Worker Salary Summary", bold, 13);
   for (const summary of snapshot.worker_payout_summaries) {
     writeLine(`${getWorkerLabel(summary.worker_name)}`, bold, 11);
+    writeLine(`Intake: ${summary.intake_count}`);
     writeLine(`Washing: ${summary.washing_count}`);
     writeLine(`Drying Downstairs: ${summary.drying_downstairs_count}`);
     writeLine(`Removed From Line: ${summary.removed_from_line_count}`);
+    writeLine(`Folded: ${summary.folded_count}`);
     writeLine(`Dryer Operation: ${summary.dryer_operation_count}`);
+    writeLine(
+      `Express Remove + Fold: ${summary.removed_and_folded_from_dryer_count}`,
+    );
     writeLine(`Your Side Total (GHS): ${summary.your_side_total_ghs.toFixed(2)}`);
     writeLine(
       `Partner Side Total (GHS): ${summary.partner_side_total_ghs.toFixed(2)}`,

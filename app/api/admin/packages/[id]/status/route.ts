@@ -14,6 +14,13 @@ import { LAUNDRY_WORKERS, PACKAGE_STATUSES } from "@/lib/types";
 const bodySchema = z.object({
   status: z.enum(PACKAGE_STATUSES),
   workerName: z.enum(LAUNDRY_WORKERS).optional(),
+  readyForPickupDetails: z
+    .object({
+      removeWorkerName: z.enum(LAUNDRY_WORKERS).optional(),
+      foldCompleted: z.boolean().optional(),
+      foldWorkerName: z.enum(LAUNDRY_WORKERS).optional(),
+    })
+    .optional(),
 });
 
 interface Params {
@@ -41,7 +48,10 @@ export async function PATCH(request: Request, { params }: Params) {
       id,
       parsed.data.status,
       auth.user.id,
-      parsed.data.workerName ?? "NOBODY",
+      {
+        workerName: parsed.data.workerName,
+        readyForPickupDetails: parsed.data.readyForPickupDetails,
+      },
       { sendNotifications: false },
     );
     invalidateAdminPackagesCache();

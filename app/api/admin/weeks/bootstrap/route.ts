@@ -25,7 +25,11 @@ export async function GET() {
 
     return NextResponse.json({
       week,
-      weeks,
+      weeks: weeks.map((entry) => ({
+        ...entry,
+        total_weight_kg: null,
+        total_price_ghs: null,
+      })),
       remainingSeconds: Math.floor(remainingMs / 1000),
     });
   } catch (error) {

@@ -39,7 +39,11 @@ export async function GET(_: Request, { params }: Params) {
 
   await withDbConnectionRetry(async () => {
     const sql = getDb();
-    await sql`update packages set payment_status='PENDING', payment_reference=${reference} where id=${row.id}`;
+    await sql`
+      update packages
+      set payment_status='PENDING', payment_source='PAYSTACK', payment_reference=${reference}
+      where id=${row.id}
+    `;
   });
 
   return NextResponse.redirect(init.data.authorization_url);

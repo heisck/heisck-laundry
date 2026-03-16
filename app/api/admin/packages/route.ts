@@ -10,7 +10,12 @@ import {
   listPackages,
   sendCreatedPackageNotifications,
 } from "@/lib/services/packages";
-import { PACKAGE_STATUSES, PACKAGE_TYPES } from "@/lib/types";
+import {
+  LAUNDRY_WORKERS,
+  PACKAGE_STATUSES,
+  PACKAGE_TYPES,
+  PAYMENT_STATUSES,
+} from "@/lib/types";
 
 const createPackageSchema = z.object({
   customerName: z.string().trim().min(1).max(120),
@@ -21,9 +26,11 @@ const createPackageSchema = z.object({
   primaryPhone: z.string().trim().min(1).max(20),
   secondaryPhone: z.string().trim().max(20).optional(),
   etaAt: z.string().datetime().optional(),
+  workerName: z.enum(LAUNDRY_WORKERS),
 });
 
 const statusSchema = z.enum(PACKAGE_STATUSES);
+const paymentStatusSchema = z.enum(PAYMENT_STATUSES);
 
 export async function GET(request: Request) {
   const auth = await requireApiUser();
@@ -35,9 +42,13 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const search = searchParams.get("q")?.trim() || undefined;
     const statusInput = searchParams.get("status");
+    const paymentStatusInput = searchParams.get("paymentStatus");
     const status = statusInput ? statusSchema.parse(statusInput) : undefined;
+    const paymentStatus = paymentStatusInput
+      ? paymentStatusSchema.parse(paymentStatusInput)
+      : undefined;
 
-    const packages = await listPackages({ search, status });
+    const packages = await listPackages({ search, status, paymentStatus });
     return NextResponse.json({ packages });
   } catch (error) {
     return handleApiError(error);

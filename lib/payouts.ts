@@ -20,10 +20,13 @@ const WORKER_LABELS: Record<LaundryWorker, string> = {
 };
 
 const TASK_LABELS: Record<PayableTaskType, string> = {
+  INTAKE: "Intake",
   WASHING: "Washing",
   DRYING_DOWNSTAIRS: "Drying Downstairs",
   REMOVED_FROM_LINE: "Removed From Line",
+  FOLDED: "Folded",
   DRYER_OPERATION: "Dryer Operation",
+  REMOVED_AND_FOLDED_FROM_DRYER: "Removed and Folded From Dryer",
 };
 
 const OWNER_SIDE_LABELS: Record<PayoutOwnerSide, string> = {
@@ -35,6 +38,12 @@ interface TaskDefinition {
   taskType: PayableTaskType;
   amountGhs: number;
   ownerSide: PayoutOwnerSide;
+}
+
+export interface ReadyForPickupTaskInput {
+  removeWorkerName?: LaundryWorker;
+  foldCompleted?: boolean;
+  foldWorkerName?: LaundryWorker;
 }
 
 function toMoney(value: number): number {
@@ -53,14 +62,18 @@ export function getOwnerSideLabel(ownerSide: PayoutOwnerSide): string {
   return OWNER_SIDE_LABELS[ownerSide];
 }
 
-export function getPayableTaskForStatus(
+export function getAutomaticTaskForStatus(
   packageType: PackageType,
   status: PackageStatus,
 ): TaskDefinition | null {
+  if (status === "RECEIVED") {
+    return null;
+  }
+
   if (status === "WASHING") {
     return {
       taskType: "WASHING",
-      amountGhs: 5,
+      amountGhs: 2.5,
       ownerSide: "YOUR_SIDE",
     };
   }
@@ -84,12 +97,74 @@ export function getPayableTaskForStatus(
   if (packageType === "EXPRESS_WASH_DRY" && status === "DRYING") {
     return {
       taskType: "DRYER_OPERATION",
-      amountGhs: 5,
+      amountGhs: 2.5,
       ownerSide: "PARTNER_SIDE",
     };
   }
 
   return null;
+}
+
+export function getPayableTaskForStatus(
+  packageType: PackageType,
+  status: PackageStatus,
+): TaskDefinition | null {
+  return getAutomaticTaskForStatus(packageType, status);
+}
+
+export function getIntakeTask(): TaskDefinition {
+  return {
+    taskType: "INTAKE",
+    amountGhs: 2.5,
+    ownerSide: "YOUR_SIDE",
+  };
+}
+
+export function requiresReadyForPickupDetails(
+  packageType: PackageType,
+  nextStatus: PackageStatus,
+): boolean {
+  return (
+    nextStatus === "READY_FOR_PICKUP" &&
+    (packageType === "NORMAL_WASH_DRY" || packageType === "EXPRESS_WASH_DRY")
+  );
+}
+
+export function getReadyForPickupTasks(
+  packageType: PackageType,
+  input?: ReadyForPickupTaskInput,
+): TaskDefinition[] {
+  if (packageType === "NORMAL_WASH_DRY") {
+    const tasks: TaskDefinition[] = [
+      {
+        taskType: "REMOVED_FROM_LINE",
+        amountGhs: 1.75,
+        ownerSide: "YOUR_SIDE",
+      },
+    ];
+
+    if (input?.foldCompleted) {
+      tasks.push({
+        taskType: "FOLDED",
+        amountGhs: 1.75,
+        ownerSide: "YOUR_SIDE",
+      });
+    }
+
+    return tasks;
+  }
+
+  if (packageType === "EXPRESS_WASH_DRY") {
+    return [
+      {
+        taskType: "REMOVED_AND_FOLDED_FROM_DRYER",
+        amountGhs: 2.5,
+        ownerSide: "PARTNER_SIDE",
+      },
+    ];
+  }
+
+  return [];
 }
 
 export function shouldSendStatusSms(status: PackageStatus): boolean {
@@ -170,10 +245,13 @@ function createEmptyWorkerSummary(
 ): WorkerPayoutSummary {
   return {
     worker_name: workerName,
+    intake_count: 0,
     washing_count: 0,
     drying_downstairs_count: 0,
     removed_from_line_count: 0,
+    folded_count: 0,
     dryer_operation_count: 0,
+    removed_and_folded_from_dryer_count: 0,
     your_side_total_ghs: 0,
     partner_side_total_ghs: 0,
     grand_total_ghs: 0,
@@ -195,14 +273,20 @@ export function buildWorkerPayoutSummaries(
     }
 
     const summary = summaryByWorker.get(entry.worker_name)!;
-    if (entry.task_type === "WASHING") {
+    if (entry.task_type === "INTAKE") {
+      summary.intake_count += 1;
+    } else if (entry.task_type === "WASHING") {
       summary.washing_count += 1;
     } else if (entry.task_type === "DRYING_DOWNSTAIRS") {
       summary.drying_downstairs_count += 1;
     } else if (entry.task_type === "REMOVED_FROM_LINE") {
       summary.removed_from_line_count += 1;
+    } else if (entry.task_type === "FOLDED") {
+      summary.folded_count += 1;
     } else if (entry.task_type === "DRYER_OPERATION") {
       summary.dryer_operation_count += 1;
+    } else if (entry.task_type === "REMOVED_AND_FOLDED_FROM_DRYER") {
+      summary.removed_and_folded_from_dryer_count += 1;
     }
 
     if (entry.owner_side === "YOUR_SIDE") {
