@@ -292,6 +292,28 @@ export function PackagesPageClient({
     const remainingMinutes = Math.floor((remainingMs / (1000 * 60)) % 60);
     return `${remainingHours}h ${remainingMinutes}m remaining`;
   }, [currentWeek]);
+  const currentWeekRemainingCompact = useMemo(() => {
+    if (currentWeekRemaining === "No active week") {
+      return "No week";
+    }
+
+    if (currentWeekRemaining === "Closing soon") {
+      return "Soon";
+    }
+
+    return currentWeekRemaining.replace(" remaining", "");
+  }, [currentWeekRemaining]);
+  const currentWeekCompactLabel = useMemo(() => {
+    if (!currentWeek) {
+      return "No week";
+    }
+
+    return new Intl.DateTimeFormat("en-US", {
+      timeZone: "Africa/Accra",
+      month: "short",
+      day: "numeric",
+    }).format(new Date(currentWeek.start_at));
+  }, [currentWeek]);
 
   const visiblePackages = useMemo(() => {
     const filtered = allPackages.filter((record) => {
@@ -929,20 +951,39 @@ export function PackagesPageClient({
     <>
       <Toaster toasts={toasts} dismiss={dismissToast} />
 
-      <section className="mb-5 grid gap-4 md:grid-cols-3">
-        <article className="metric-tile px-5 py-5">
-          <p className="label-kicker">Active Week</p>
-          <p className="mt-3 text-lg font-semibold text-slate-950">
-            {currentWeek?.label ?? "No active week"}
+      <section className="mb-5 grid grid-cols-3 gap-2 sm:gap-4">
+        <article className="metric-tile px-3 py-3 sm:px-5 sm:py-5">
+          <p className="label-kicker">
+            <span className="sm:hidden">Week</span>
+            <span className="hidden sm:inline">Active Week</span>
+          </p>
+          <p
+            className="mt-2 truncate text-xs font-semibold text-slate-950 sm:mt-3 sm:text-lg"
+            title={currentWeek?.label ?? "No active week"}
+          >
+            <span className="sm:hidden">{currentWeekCompactLabel}</span>
+            <span className="hidden sm:inline">{currentWeek?.label ?? "No active week"}</span>
           </p>
         </article>
-        <article className="metric-tile px-5 py-5">
-          <p className="label-kicker">Time Left</p>
-          <p className="mt-3 text-lg font-semibold text-slate-950">{currentWeekRemaining}</p>
+        <article className="metric-tile px-3 py-3 sm:px-5 sm:py-5">
+          <p className="label-kicker">
+            <span className="sm:hidden">Left</span>
+            <span className="hidden sm:inline">Time Left</span>
+          </p>
+          <p
+            className="mt-2 truncate text-xs font-semibold text-slate-950 sm:mt-3 sm:text-lg"
+            title={currentWeekRemaining}
+          >
+            <span className="sm:hidden">{currentWeekRemainingCompact}</span>
+            <span className="hidden sm:inline">{currentWeekRemaining}</span>
+          </p>
         </article>
-        <article className="metric-tile px-5 py-5">
-          <p className="label-kicker">Ready for Pickup</p>
-          <p className="font-display mt-3 text-3xl font-semibold text-slate-950">
+        <article className="metric-tile px-3 py-3 sm:px-5 sm:py-5">
+          <p className="label-kicker">
+            <span className="sm:hidden">Ready</span>
+            <span className="hidden sm:inline">Ready for Pickup</span>
+          </p>
+          <p className="font-display mt-2 text-xl font-semibold text-slate-950 sm:mt-3 sm:text-3xl">
             {displayedMetrics.readyCount}
           </p>
         </article>
@@ -1071,7 +1112,7 @@ export function PackagesPageClient({
               <button
                 type="submit"
                 disabled={busyAction === "createPackage" || !currentWeek}
-                className="btn btn-primary"
+                className="btn btn-primary w-full sm:w-auto"
               >
                 {busyAction === "createPackage" ? "Creating..." : "Create Package"}
               </button>
@@ -1160,7 +1201,7 @@ export function PackagesPageClient({
               <button
                 type="button"
                 onClick={() => setSortDescending((prev) => !prev)}
-                className="btn btn-secondary justify-self-start lg:justify-self-end"
+                className="btn btn-secondary w-full justify-self-stretch lg:w-auto lg:justify-self-end"
               >
                 Sort {sortDescending ? "↓" : "↑"}
               </button>

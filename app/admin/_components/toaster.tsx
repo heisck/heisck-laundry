@@ -18,6 +18,9 @@ interface PushToastOptions {
   persist?: boolean;
 }
 
+const DEFAULT_TOAST_DURATION_MS = 5000;
+const PERSISTENT_TOAST_DURATION_MS = 12000;
+
 export function useToasts() {
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const toastIdRef = useRef(1);
@@ -45,13 +48,12 @@ export function useToasts() {
       toastIdRef.current += 1;
 
       setToasts((prev) => [...prev, { id, kind, title, message }]);
-      if (!options?.persist) {
-        const timeout = setTimeout(
-          () => dismissToast(id),
-          options?.durationMs ?? 5000,
-        );
-        toastTimeoutsRef.current.set(id, timeout);
-      }
+      const timeout = setTimeout(
+        () => dismissToast(id),
+        options?.durationMs ??
+          (options?.persist ? PERSISTENT_TOAST_DURATION_MS : DEFAULT_TOAST_DURATION_MS),
+      );
+      toastTimeoutsRef.current.set(id, timeout);
 
       return id;
     },
@@ -79,13 +81,13 @@ export function Toaster({
   return (
     <aside
       aria-live="polite"
-      className="pointer-events-none fixed inset-x-3 bottom-3 top-auto z-50 flex w-auto flex-col gap-3 sm:inset-x-auto sm:right-4 sm:top-[calc(env(safe-area-inset-top)+1rem)] sm:bottom-auto sm:w-[min(92vw,26rem)]"
+      className="pointer-events-none fixed bottom-3 left-1/2 z-50 flex w-[min(82vw,18rem)] -translate-x-1/2 flex-col gap-2 sm:left-auto sm:right-4 sm:top-[calc(env(safe-area-inset-top)+1rem)] sm:bottom-auto sm:w-[min(92vw,26rem)] sm:translate-x-0 sm:gap-3"
     >
       {toasts.map((toast) => (
         <div
           key={toast.id}
           className={cn(
-            "pointer-events-auto overflow-hidden rounded-[1.3rem] border p-4 shadow-lg transition",
+            "pointer-events-auto overflow-hidden rounded-[1.05rem] border p-3 shadow-lg transition sm:rounded-[1.3rem] sm:p-4",
             toast.kind === "success" && "border-emerald-200 bg-white/95",
             toast.kind === "error" && "border-rose-200 bg-white/95",
             toast.kind === "info" && "border-slate-200 bg-white/95",
@@ -97,7 +99,7 @@ export function Toaster({
             <div className="flex items-start gap-2">
               <span
                 className={cn(
-                  "mt-1 inline-flex h-2.5 w-2.5 rounded-full",
+                  "mt-1 inline-flex h-2 w-2 rounded-full sm:h-2.5 sm:w-2.5",
                   toast.kind === "success" && "bg-emerald-500",
                   toast.kind === "error" && "bg-rose-500",
                   toast.kind === "info" && "bg-blue-500",
@@ -106,11 +108,13 @@ export function Toaster({
                 )}
               />
               <div>
-                <p className="font-display text-base font-semibold text-slate-950">
+                <p className="font-display text-sm font-semibold text-slate-950 sm:text-base">
                   {toast.title}
                 </p>
                 {toast.message ? (
-                  <p className="mt-1 text-sm leading-6 text-slate-600">{toast.message}</p>
+                  <p className="mt-1 text-xs leading-5 text-slate-600 sm:text-sm sm:leading-6">
+                    {toast.message}
+                  </p>
                 ) : null}
               </div>
             </div>
@@ -118,14 +122,14 @@ export function Toaster({
               type="button"
               onClick={() => dismiss(toast.id)}
               aria-label="Dismiss notification"
-              className="inline-flex h-8 w-8 items-center justify-center rounded-full text-base font-semibold text-slate-500 transition hover:bg-slate-100 hover:text-slate-700"
+              className="inline-flex h-7 w-7 items-center justify-center rounded-full text-sm font-semibold text-slate-500 transition hover:bg-slate-100 hover:text-slate-700 sm:h-8 sm:w-8 sm:text-base"
             >
               <span aria-hidden="true">&times;</span>
             </button>
           </div>
           <div
             className={cn(
-              "mt-3 h-1.5 rounded-full",
+              "mt-2 h-1 rounded-full sm:mt-3 sm:h-1.5",
               toast.kind === "success" && "bg-emerald-100",
               toast.kind === "error" && "bg-rose-100",
               toast.kind === "info" && "bg-slate-200",

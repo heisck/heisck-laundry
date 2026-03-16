@@ -37,6 +37,28 @@ interface DashboardPayload {
 
 const SUMMARY_DASHBOARD_STORAGE_KEY = "heisck.admin.summary.dashboard";
 
+function getWeekRangeLabel(week: ProcessingWeekWithReport): string {
+  return `${formatAccraDateTime(week.start_at)} - ${formatAccraDateTime(week.end_at)}`;
+}
+
+function getWeekRangeCompactLabel(week: ProcessingWeekWithReport): string {
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Africa/Accra",
+    month: "short",
+    day: "numeric",
+  });
+
+  return `${formatter.format(new Date(week.start_at))} - ${formatter.format(new Date(week.end_at))}`;
+}
+
+function weekStatusPill(status: ProcessingWeekWithReport["status"]): string {
+  if (status === "ACTIVE") {
+    return "bg-emerald-100 text-emerald-700";
+  }
+
+  return "bg-slate-100 text-slate-700";
+}
+
 function readSummaryDashboardCache(): DashboardPayload | null {
   if (typeof window === "undefined") {
     return null;
@@ -221,22 +243,25 @@ export function SummaryPageClient({
           <div className="border-b border-slate-200/70 px-5 py-4">
             <p className="label-kicker">Package Type Breakdown</p>
           </div>
-          <div className="grid gap-4 p-5 md:grid-cols-3">
-            <div className="metric-tile p-4">
-              <p className="label-kicker">Wash Only</p>
-              <p className="font-display mt-2 text-2xl font-semibold text-slate-950">
+          <div className="grid grid-cols-3 gap-2 p-3 sm:gap-4 sm:p-5">
+            <div className="metric-tile px-3 py-3 sm:p-4">
+              <p className="label-kicker">
+                <span className="sm:hidden">Wash</span>
+                <span className="hidden sm:inline">Wash Only</span>
+              </p>
+              <p className="font-display mt-2 text-xl font-semibold text-slate-950 sm:text-2xl">
                 {packageTypeSummary.wash_only_count}
               </p>
             </div>
-            <div className="metric-tile p-4">
+            <div className="metric-tile px-3 py-3 sm:p-4">
               <p className="label-kicker">Normal</p>
-              <p className="font-display mt-2 text-2xl font-semibold text-slate-950">
+              <p className="font-display mt-2 text-xl font-semibold text-slate-950 sm:text-2xl">
                 {packageTypeSummary.normal_wash_dry_count}
               </p>
             </div>
-            <div className="metric-tile p-4">
+            <div className="metric-tile px-3 py-3 sm:p-4">
               <p className="label-kicker">Express</p>
-              <p className="font-display mt-2 text-2xl font-semibold text-slate-950">
+              <p className="font-display mt-2 text-xl font-semibold text-slate-950 sm:text-2xl">
                 {packageTypeSummary.express_wash_dry_count}
               </p>
             </div>
@@ -365,7 +390,7 @@ export function SummaryPageClient({
 
       <section className="glass-card overflow-hidden">
         <div className="border-b border-slate-200/70 px-5 py-4">
-          <p className="label-kicker">Week Activity Table</p>
+          <p className="label-kicker">Week Activity</p>
         </div>
         {weeks.length === 0 ? (
           <p className="p-5 text-sm leading-6 text-slate-500">No weekly activity available yet.</p>
@@ -374,22 +399,30 @@ export function SummaryPageClient({
             <div className="space-y-4 p-4 md:hidden">
               {weeks.map((week) => (
                 <article key={week.id} className="metric-tile p-4">
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div>
-                      <p className="font-display text-xl font-semibold text-slate-950">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="truncate font-display text-lg font-semibold text-slate-950">
                         {week.label}
                       </p>
-                      <p className="mt-1 text-sm leading-6 text-slate-500">
-                        {formatAccraDateTime(week.start_at)} - {formatAccraDateTime(week.end_at)}
+                      <p className="mt-1 text-sm leading-5 text-slate-500">
+                        {getWeekRangeCompactLabel(week)}
                       </p>
                     </div>
-                    <span className="pill-soft">{week.status}</span>
+                    <span className={`status-chip ${weekStatusPill(week.status)}`}>
+                      {week.status}
+                    </span>
                   </div>
-                  <div className="mt-4">
+                  <div className="mt-4 grid grid-cols-2 gap-3">
                     <div className="surface-subtle px-4 py-3">
                       <p className="label-kicker">Packages</p>
                       <p className="mt-2 text-sm font-semibold text-slate-950">
                         {week.package_count ?? 0}
+                      </p>
+                    </div>
+                    <div className="surface-subtle px-4 py-3">
+                      <p className="label-kicker">Range</p>
+                      <p className="mt-2 truncate text-sm font-semibold text-slate-950">
+                        {getWeekRangeCompactLabel(week)}
                       </p>
                     </div>
                   </div>
@@ -397,34 +430,33 @@ export function SummaryPageClient({
               ))}
             </div>
 
-            <div className="table-wrap hidden md:block">
-              <table className="data-table min-w-[640px]">
-                <thead>
-                  <tr className="text-left">
-                    <th>Week</th>
-                    <th>Status</th>
-                    <th>Packages</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {weeks.map((week) => (
-                    <tr key={week.id}>
-                      <td>
-                        <p className="font-medium text-slate-900">{week.label}</p>
-                        <p className="text-sm leading-6 text-slate-500">
-                          {formatAccraDateTime(week.start_at)} - {formatAccraDateTime(week.end_at)}
-                        </p>
-                      </td>
-                      <td>
-                        <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium">
-                          {week.status}
-                        </span>
-                      </td>
-                      <td>{week.package_count ?? 0}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="hidden divide-y divide-slate-200 md:block">
+              {weeks.map((week) => (
+                <article
+                  key={week.id}
+                  className="flex items-center justify-between gap-5 px-5 py-4"
+                >
+                  <div className="min-w-0">
+                    <p className="font-display truncate text-xl font-semibold text-slate-950">
+                      {week.label}
+                    </p>
+                    <p className="mt-1 text-sm leading-6 text-slate-500">
+                      {getWeekRangeLabel(week)}
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-3">
+                    <div className="surface-subtle min-w-[7.5rem] px-4 py-3 text-center">
+                      <p className="label-kicker">Packages</p>
+                      <p className="mt-2 text-sm font-semibold text-slate-950">
+                        {week.package_count ?? 0}
+                      </p>
+                    </div>
+                    <span className={`status-chip ${weekStatusPill(week.status)}`}>
+                      {week.status}
+                    </span>
+                  </div>
+                </article>
+              ))}
             </div>
           </>
         )}

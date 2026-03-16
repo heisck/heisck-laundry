@@ -5,18 +5,24 @@ import { useRouter } from "next/navigation";
 
 import { AdminShell } from "../_components/admin-shell";
 import { fetchWithTimeout, parseApiResponse } from "../_components/client-utils";
+import { Toaster, useToasts } from "../_components/toaster";
 
 export function PrivateAccessGate({ userEmail }: { userEmail: string }) {
   const router = useRouter();
+  const { toasts, pushToast, dismissToast } = useToasts();
 
   const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSubmitting(true);
-    setError(null);
+    const loadingToastId = pushToast(
+      "loading",
+      "Unlocking private view",
+      "Checking the owner password.",
+      { persist: true },
+    );
 
     try {
       const response = await fetchWithTimeout("/api/admin/private-access", {
@@ -29,9 +35,13 @@ export function PrivateAccessGate({ userEmail }: { userEmail: string }) {
 
       await parseApiResponse<{ success: boolean }>(response);
       setPassword("");
+      dismissToast(loadingToastId);
       router.refresh();
     } catch (submitError) {
-      setError(
+      dismissToast(loadingToastId);
+      pushToast(
+        "error",
+        "Unlock failed",
         submitError instanceof Error ? submitError.message : "Unable to unlock private view.",
       );
     } finally {
@@ -45,6 +55,8 @@ export function PrivateAccessGate({ userEmail }: { userEmail: string }) {
       title="Private"
       subtitle="Enter the secondary password to view admin-only totals."
     >
+      <Toaster toasts={toasts} dismiss={dismissToast} />
+
       <section className="mx-auto max-w-2xl">
         <article className="glass-card overflow-hidden">
           <div className="border-b border-slate-200/70 px-5 py-4">
@@ -74,12 +86,6 @@ export function PrivateAccessGate({ userEmail }: { userEmail: string }) {
                 placeholder="Enter password"
               />
             </div>
-
-            {error ? (
-              <p className="rounded-[1rem] border border-rose-200 bg-rose-50 px-4 py-3 text-sm leading-6 text-rose-700">
-                {error}
-              </p>
-            ) : null}
 
             <button type="submit" disabled={submitting} className="btn btn-primary">
               {submitting ? "Unlocking..." : "Unlock Private View"}
