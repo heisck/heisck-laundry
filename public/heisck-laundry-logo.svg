@@ -1,0 +1,79 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <filter id="shadow" x="82" y="92" width="348" height="312" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="10" stdDeviation="12" flood-color="#2C6D78" flood-opacity="0.12"/>
+    </filter>
+    <path id="logo-arc" d="M118 186C150 136 199 106 256 106C313 106 362 136 394 186"/>
+  </defs>
+
+  <circle cx="256" cy="256" r="226" fill="#BFEFED" stroke="#63DBDE" stroke-width="10"/>
+  <circle cx="256" cy="256" r="177" fill="#BFEFED" stroke="#6FDDDF" stroke-width="9"/>
+  <circle cx="256" cy="256" r="147" fill="#FFFFFF" stroke="#6FDDDF" stroke-width="8"/>
+
+  <text fill="#355B6C" font-family="'Trebuchet MS', Aptos, 'Segoe UI', sans-serif" font-size="33" font-weight="800" letter-spacing="4.5">
+    <textPath href="#logo-arc" startOffset="50%" text-anchor="middle">HEISCK LAUNDRY</textPath>
+  </text>
+
+  <circle cx="167" cy="189" r="11" fill="#BAEEF1"/>
+  <circle cx="191" cy="214" r="14" fill="#BAEEF1"/>
+  <circle cx="225" cy="177" r="8" fill="#BAEEF1"/>
+  <circle cx="256" cy="167" r="9" fill="#BAEEF1"/>
+  <circle cx="285" cy="176" r="8" fill="#BAEEF1"/>
+  <circle cx="318" cy="191" r="12" fill="#BAEEF1"/>
+  <circle cx="339" cy="219" r="14" fill="#BAEEF1"/>
+  <circle cx="225" cy="219" r="10" fill="#DAFBFB"/>
+  <circle cx="285" cy="219" r="10" fill="#DAFBFB"/>
+
+  <path d="M178 216C200 188 225 174 256 174C287 174 312 188 334 216" stroke="#B8ECEF" stroke-width="24" stroke-linecap="round"/>
+  <path d="M212 195L216 202" stroke="#FFFFFF" stroke-width="5" stroke-linecap="round"/>
+  <path d="M214 200L208 201" stroke="#FFFFFF" stroke-width="5" stroke-linecap="round"/>
+  <path d="M214 200L220 201" stroke="#FFFFFF" stroke-width="5" stroke-linecap="round"/>
+  <path d="M256 188L260 195" stroke="#FFFFFF" stroke-width="5" stroke-linecap="round"/>
+  <path d="M258 193L252 194" stroke="#FFFFFF" stroke-width="5" stroke-linecap="round"/>
+  <path d="M258 193L264 194" stroke="#FFFFFF" stroke-width="5" stroke-linecap="round"/>
+  <path d="M298 198L302 205" stroke="#FFFFFF" stroke-width="5" stroke-linecap="round"/>
+  <path d="M300 203L294 204" stroke="#FFFFFF" stroke-width="5" stroke-linecap="round"/>
+  <path d="M300 203L306 204" stroke="#FFFFFF" stroke-width="5" stroke-linecap="round"/>
+
+  <g filter="url(#shadow)">
+    <path d="M170 292L184 208H328L342 292H170Z" fill="#5EA6D7" stroke="#376E88" stroke-width="7" stroke-linejoin="round"/>
+    <path d="M195 208L214 188L233 208H195Z" fill="#F15E2A"/>
+    <path d="M214 208L247 172L281 208H214Z" fill="#1A92C3"/>
+    <path d="M281 208L302 186L334 208H281Z" fill="#8EC63F"/>
+    <path d="M232 208L244 190L263 208H232Z" fill="#1C5D87"/>
+    <path d="M248 208L264 191L283 208H248Z" fill="#2E84BA"/>
+
+    <path d="M185 208V340" stroke="#376E88" stroke-width="5"/>
+    <path d="M214 208V340" stroke="#376E88" stroke-width="5"/>
+    <path d="M243 208V340" stroke="#376E88" stroke-width="5"/>
+    <path d="M272 208V340" stroke="#376E88" stroke-width="5"/>
+    <path d="M301 208V340" stroke="#376E88" stroke-width="5"/>
+    <path d="M330 208V340" stroke="#376E88" stroke-width="5"/>
+    <path d="M170 292H342" stroke="#376E88" stroke-width="5"/>
+    <path d="M178 340H334" stroke="#376E88" stroke-width="7" stroke-linecap="round"/>
+
+    <circle cx="202" cy="244" r="6" fill="#D5331C"/>
+    <circle cx="230" cy="244" r="6" fill="#D5331C"/>
+    <circle cx="258" cy="244" r="6" fill="#D5331C"/>
+    <circle cx="286" cy="244" r="6" fill="#D5331C"/>
+    <circle cx="314" cy="244" r="6" fill="#D5331C"/>
+
+    <circle cx="202" cy="268" r="6" fill="#D5331C"/>
+    <circle cx="230" cy="268" r="6" fill="#D5331C"/>
+    <circle cx="258" cy="268" r="6" fill="#E5C13A"/>
+    <circle cx="286" cy="268" r="6" fill="#57A9E6"/>
+    <circle cx="314" cy="268" r="6" fill="#8EC63F"/>
+
+    <circle cx="202" cy="292" r="6" fill="#D5331C"/>
+    <circle cx="230" cy="292" r="6" fill="#D5331C"/>
+    <circle cx="258" cy="292" r="6" fill="#E5C13A"/>
+    <circle cx="286" cy="292" r="6" fill="#57A9E6"/>
+    <circle cx="314" cy="292" r="6" fill="#8EC63F"/>
+
+    <circle cx="202" cy="316" r="6" fill="#D5331C"/>
+    <circle cx="230" cy="316" r="6" fill="#D5331C"/>
+    <circle cx="258" cy="316" r="6" fill="#E5C13A"/>
+    <circle cx="286" cy="316" r="6" fill="#57A9E6"/>
+    <circle cx="314" cy="316" r="6" fill="#8EC63F"/>
+  </g>
+</svg>

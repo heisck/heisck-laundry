@@ -101,6 +101,67 @@ textarea {
   pointer-events: none;
 }
 
+.admin-topbar {
+  position: sticky;
+  top: 1rem;
+  z-index: 40;
+  border: 1px solid rgba(77, 92, 108, 0.12);
+  border-radius: 1.45rem;
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 16px 34px rgba(20, 32, 51, 0.08);
+  backdrop-filter: blur(18px);
+}
+
+.admin-time-pill {
+  display: inline-flex;
+  min-height: 2.9rem;
+  min-width: 8.5rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  border: 1px solid rgba(77, 92, 108, 0.14);
+  background: rgba(246, 252, 251, 0.92);
+  padding: 0.7rem 1rem;
+  font-family: "Trebuchet MS", "Aptos Display", "Aptos", "Segoe UI Variable", sans-serif;
+  font-size: 0.96rem;
+  font-weight: 700;
+  color: var(--foreground);
+}
+
+.admin-icon-btn,
+.admin-profile-badge {
+  display: inline-flex;
+  height: 2.9rem;
+  width: 2.9rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  border: 1px solid rgba(77, 92, 108, 0.14);
+  background: rgba(255, 255, 255, 0.96);
+  color: var(--foreground);
+  box-shadow: 0 8px 18px rgba(20, 32, 51, 0.06);
+}
+
+.admin-icon-btn {
+  transition:
+    transform 140ms ease,
+    box-shadow 140ms ease,
+    border-color 140ms ease;
+}
+
+.admin-icon-btn:hover {
+  transform: translateY(-1px);
+  border-color: rgba(15, 118, 110, 0.24);
+  box-shadow: 0 12px 22px rgba(20, 32, 51, 0.1);
+}
+
+.admin-profile-badge {
+  background: linear-gradient(135deg, rgba(15, 118, 110, 0.14), rgba(15, 76, 129, 0.14));
+  font-size: 0.9rem;
+  font-weight: 800;
+  color: #0f5c68;
+}
+
 .metric-tile {
   border: 1px solid rgba(77, 92, 108, 0.12);
   border-radius: 1.35rem;
@@ -246,7 +307,7 @@ textarea {
   overflow-x: auto;
   border-radius: 1.4rem;
   border: 1px solid rgba(77, 92, 108, 0.12);
-  background: rgba(255, 255, 255, 0.76);
+  background: rgba(255, 255, 255, 0.9);
 }
 
 .data-table {
@@ -267,8 +328,8 @@ textarea {
 
 .data-table th,
 .data-table td {
-  padding: 1rem 1rem;
-  vertical-align: top;
+  padding: 0.7rem 0.85rem;
+  vertical-align: middle;
 }
 
 .data-table tbody tr {
@@ -277,6 +338,19 @@ textarea {
 
 .data-table tbody tr:hover {
   background: rgba(249, 252, 251, 0.92);
+}
+
+.compact-table th,
+.compact-table td {
+  padding: 0.56rem 0.72rem;
+}
+
+.compact-table .status-chip {
+  padding: 0.34rem 0.7rem;
+}
+
+.compact-table tbody td {
+  line-height: 1.2;
 }
 
 .status-chip {

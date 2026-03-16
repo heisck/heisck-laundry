@@ -40,7 +40,7 @@ function SkeletonSummaryPage({ userEmail }: { userEmail: string }) {
   return (
     <AdminShell
       userEmail={userEmail}
-      title="Order Summary"
+      title="Summary"
       subtitle="Review operations here and use /admin/private directly for protected totals and exports."
     >
       <section className="grid gap-4 md:grid-cols-4">
@@ -162,7 +162,7 @@ export function SummaryPageClient({
   return (
     <AdminShell
       userEmail={userEmail}
-      title="Order Summary"
+      title="Summary"
       subtitle="Review operations here and use /admin/private directly for protected totals and exports."
     >
       <Toaster toasts={toasts} dismiss={dismissToast} />
@@ -341,7 +341,7 @@ export function SummaryPageClient({
         </div>
       </section>
 
-      <section className="mb-5 grid gap-5 lg:grid-cols-2">
+      <section className="mb-5">
         <article className="glass-card overflow-hidden">
           <div className="border-b border-slate-200/70 px-5 py-4">
             <p className="label-kicker">Active Week Snapshot</p>
@@ -375,28 +375,6 @@ export function SummaryPageClient({
             >
               {refreshing ? "Refreshing..." : "Refresh Summary"}
             </button>
-          </div>
-        </article>
-
-        <article className="glass-card overflow-hidden">
-          <div className="border-b border-slate-200/70 px-5 py-4">
-            <p className="label-kicker">Protected Private Totals</p>
-          </div>
-          <div className="space-y-4 p-5">
-            <div className="metric-tile p-4">
-              <p className="label-kicker">Direct URL Only</p>
-              <p className="mt-2 text-lg font-semibold text-slate-950">
-                Sensitive totals and exports moved
-              </p>
-              <p className="mt-2 text-sm leading-6 text-slate-600">
-                Total weight, total amount made, partner amount made, total express kg,
-                weekly exports, and week start or end controls now live at
-                /admin/private behind the owner password.
-              </p>
-            </div>
-            <p className="text-sm leading-6 text-slate-600">
-              The private page is no longer shown in the menu.
-            </p>
           </div>
         </article>
       </section>

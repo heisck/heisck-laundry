@@ -97,11 +97,6 @@ type BusyAction =
   | "updatePayment"
   | "updateStatus"
   | "retrySms";
-type PendingStatusUpdate = {
-  packageId: string;
-  nextStatus: PackageStatus;
-} | null;
-type StatusDrafts = Record<string, PackageStatus>;
 
 const PACKAGES_BOOTSTRAP_STORAGE_KEY = "heisck.admin.packages.bootstrap";
 
@@ -137,7 +132,8 @@ function matchesSearch(record: PackageRecord, query: string): boolean {
   return (
     record.order_id.toLowerCase().includes(normalized) ||
     record.customer_name.toLowerCase().includes(normalized) ||
-    record.room_number.toLowerCase().includes(normalized)
+    record.room_number.toLowerCase().includes(normalized) ||
+    record.primary_phone.toLowerCase().includes(normalized)
   );
 }
 
@@ -181,16 +177,6 @@ function getCompactStatusLabel(status: PackageStatus): string {
     return "Drying";
   }
   return "Received";
-}
-
-function paymentPill(status: PaymentStatus): string {
-  if (status === "PAID") {
-    return "bg-emerald-100 text-emerald-700";
-  }
-  if (status === "PENDING") {
-    return "bg-amber-100 text-amber-700";
-  }
-  return "bg-slate-100 text-slate-700";
 }
 
 function getCompactPaymentLabel(status: PaymentStatus): string {
@@ -290,12 +276,9 @@ export function PackagesPageClient({
   const [lastCreated, setLastCreated] = useState<LastCreatedInfo | null>(null);
   const [loading, setLoading] = useState(!initialLoadReady);
   const [busyAction, setBusyAction] = useState<BusyAction>(null);
-  const [pendingStatusUpdate, setPendingStatusUpdate] =
-    useState<PendingStatusUpdate>(null);
   const [pendingSmsRetryPackageId, setPendingSmsRetryPackageId] = useState<
     string | null
   >(null);
-  const [statusDrafts, setStatusDrafts] = useState<StatusDrafts>({});
   const [statusDialog, setStatusDialog] = useState<StatusDialogState | null>(null);
   const initRef = useRef(false);
 
@@ -335,13 +318,11 @@ export function PackagesPageClient({
   }, [allPackages, paymentFilter, search, sortDescending, statusFilter]);
 
   const displayedMetrics = useMemo(() => {
-    const packageCount = visiblePackages.length;
     const readyCount = visiblePackages.filter(
       (item) => item.status === "READY_FOR_PICKUP",
     ).length;
 
     return {
-      packageCount,
       readyCount,
     };
   }, [visiblePackages]);
@@ -525,20 +506,7 @@ export function PackagesPageClient({
     }
   }
 
-  function getSelectedStatus(pkg: PackageRecord): PackageStatus {
-    if (pendingStatusUpdate?.packageId === pkg.id) {
-      return pendingStatusUpdate.nextStatus;
-    }
-
-    return statusDrafts[pkg.id] ?? pkg.status;
-  }
-
   function handleStatusSelect(pkg: PackageRecord, nextStatus: PackageStatus) {
-    setStatusDrafts((prev) => ({
-      ...prev,
-      [pkg.id]: nextStatus,
-    }));
-
     if (nextStatus === pkg.status) {
       return;
     }
@@ -564,29 +532,97 @@ export function PackagesPageClient({
     void handleStatusChange(pkg.id, pkg.order_id, nextStatus, {});
   }
 
-  function renderStatusUpdateControls(pkg: PackageRecord) {
-    const selectedStatus = getSelectedStatus(pkg);
+  function renderWorkerChoices(
+    selectedWorker: LaundryWorker | "",
+    onSelect: (worker: LaundryWorker) => void,
+  ) {
+    return (
+      <div className="mt-3 grid gap-2 sm:grid-cols-3">
+        {LAUNDRY_WORKERS.map((worker) => {
+          const selected = selectedWorker === worker;
+
+          return (
+            <button
+              key={worker}
+              type="button"
+              disabled={isBusy}
+              onClick={() => onSelect(worker)}
+              className={cn(
+                "rounded-[1rem] border px-3 py-2 text-sm font-semibold transition",
+                selected
+                  ? "border-slate-950 bg-slate-950 text-white shadow-[0_10px_18px_rgba(15,23,42,0.16)]"
+                  : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50",
+              )}
+            >
+              {getWorkerLabel(worker)}
+            </button>
+          );
+        })}
+      </div>
+    );
+  }
+
+  function renderFoldChoices(
+    selectedValue: boolean | null,
+    onSelect: (value: boolean) => void,
+  ) {
+    return (
+      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+        {[
+          { label: "No Fold", value: false },
+          { label: "Folded", value: true },
+        ].map((option) => {
+          const selected = selectedValue === option.value;
+
+          return (
+            <button
+              key={option.label}
+              type="button"
+              disabled={isBusy}
+              onClick={() => onSelect(option.value)}
+              className={cn(
+                "rounded-[1rem] border px-3 py-2 text-sm font-semibold transition",
+                selected
+                  ? "border-slate-950 bg-slate-950 text-white shadow-[0_10px_18px_rgba(15,23,42,0.16)]"
+                  : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50",
+              )}
+            >
+              {option.label}
+            </button>
+          );
+        })}
+      </div>
+    );
+  }
+
+  function renderStatusControl(pkg: PackageRecord, compact = false) {
+    const nextStatus = getStatusOptionsForPackage(pkg.package_type, pkg.status)[1];
 
     return (
-      <>
-        <select
-          value={selectedStatus}
-          disabled={isBusy || pkg.status === "PICKED_UP"}
-          onChange={(event) =>
-            handleStatusSelect(pkg, event.target.value as PackageStatus)
-          }
-          className="input-control min-w-0 py-2 text-[0.74rem]"
-        >
-          {getStatusOptionsForPackage(pkg.package_type, pkg.status).map((status) => (
-            <option key={status} value={status}>
-              {getCompactStatusLabel(status)}
-            </option>
-          ))}
-        </select>
-        <p className="mt-2 text-xs leading-5 text-slate-500">
-          Status saves right away. Worker details only show when that step needs payout info.
-        </p>
-      </>
+      <div className="flex items-center gap-2 whitespace-nowrap">
+        <span className={cn("status-chip", statusPill(pkg.status))}>
+          {getCompactStatusLabel(pkg.status)}
+        </span>
+        {nextStatus ? (
+          <button
+            type="button"
+            onClick={() => handleStatusSelect(pkg, nextStatus)}
+            disabled={isBusy}
+            title={`Move to ${getCompactStatusLabel(nextStatus)}`}
+            aria-label={`Move ${pkg.order_id} to ${getCompactStatusLabel(nextStatus)}`}
+            className={cn(
+              "inline-flex items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 transition hover:bg-slate-50",
+              compact ? "h-9 w-9 text-base" : "h-8 w-8 text-sm",
+            )}
+          >
+            <span aria-hidden="true">→</span>
+          </button>
+        ) : (
+          <span className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-400">
+            Done
+          </span>
+        )}
+      </div>
     );
   }
 
@@ -634,44 +670,35 @@ export function PackagesPageClient({
   }
 
   function renderPaymentControls(pkg: PackageRecord) {
+    const isPaid = pkg.payment_status === "PAID";
+    const nextStatus = isPaid ? "UNPAID" : "PAID";
+
     return (
-      <div className="space-y-2">
-        <span
-          className={cn(
-            "status-chip",
-            paymentPill(pkg.payment_status),
-          )}
-        >
-          {getCompactPaymentLabel(pkg.payment_status)}
-        </span>
-        <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={() => void handlePaymentStatusChange(pkg.id, pkg.order_id, "PAID")}
-            disabled={isBusy || pkg.payment_status === "PAID"}
-            className="btn btn-secondary px-3 py-2 text-[0.72rem]"
-          >
-            Paid
-          </button>
-          <button
-            type="button"
-            onClick={() => void handlePaymentStatusChange(pkg.id, pkg.order_id, "UNPAID")}
-            disabled={isBusy || pkg.payment_status === "UNPAID"}
-            className="btn btn-secondary px-3 py-2 text-[0.72rem]"
-          >
-            Not Paid
-          </button>
-        </div>
-      </div>
+      <button
+        type="button"
+        onClick={() => void handlePaymentStatusChange(pkg.id, pkg.order_id, nextStatus)}
+        disabled={isBusy}
+        className={cn(
+          "status-chip min-w-[5.8rem] justify-center border px-3 py-2 text-[0.75rem] transition",
+          isPaid
+            ? "border-emerald-200 bg-emerald-100 text-emerald-700"
+            : "border-slate-200 bg-slate-100 text-slate-700",
+        )}
+        aria-pressed={isPaid}
+      >
+        {isPaid ? "Paid" : "Not Paid"}
+      </button>
     );
   }
 
   function renderSmsInfo(pkg: PackageRecord) {
     return (
-      <>
-        <p>{pkg.last_delivery_state ?? "No message yet"}</p>
+      <div className="space-y-1">
+        <p className="text-sm font-medium text-slate-700">
+          {pkg.last_delivery_state ?? "No message yet"}
+        </p>
         {pkg.last_notification_at ? (
-          <p className="mt-1 text-xs text-slate-500">
+          <p className="text-xs text-slate-500">
             {formatAccraDateTime(pkg.last_notification_at)}
           </p>
         ) : null}
@@ -680,12 +707,12 @@ export function PackagesPageClient({
             type="button"
             onClick={() => void handleRetrySms(pkg.id)}
             disabled={isBusy}
-            className="btn btn-secondary mt-2 w-full sm:w-auto"
+            className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
           >
             {pendingSmsRetryPackageId === pkg.id ? "Retrying..." : "Retry SMS"}
           </button>
         ) : null}
-      </>
+      </div>
     );
   }
 
@@ -766,7 +793,6 @@ export function PackagesPageClient({
     },
   ) {
     setBusyAction("updateStatus");
-    setPendingStatusUpdate({ packageId, nextStatus });
     const loadingToastId = showLoadingToast(
       "Updating status",
       `${orderId} is being moved to ${getStatusLabel(nextStatus)}.`,
@@ -797,10 +823,6 @@ export function PackagesPageClient({
         );
         return updated;
       });
-      setStatusDrafts((prev) => ({
-        ...prev,
-        [packageId]: payload.package.status,
-      }));
       setStatusDialog(null);
 
       pushToast(
@@ -828,14 +850,6 @@ export function PackagesPageClient({
         );
       }
     } catch (error) {
-      const currentStatus =
-        allPackages.find((item) => item.id === packageId)?.status ?? null;
-      if (currentStatus) {
-        setStatusDrafts((prev) => ({
-          ...prev,
-          [packageId]: currentStatus,
-        }));
-      }
       pushToast(
         "error",
         "Failed to update status",
@@ -843,7 +857,6 @@ export function PackagesPageClient({
       );
     } finally {
       dismissToast(loadingToastId);
-      setPendingStatusUpdate(null);
       setBusyAction(null);
     }
   }
@@ -910,40 +923,67 @@ export function PackagesPageClient({
       userEmail={userEmail}
       title="Packages"
       subtitle="Create customer packages, track updates, and manage status changes."
+      headerExtras={
+        <>
+          <div className="inline-flex min-h-[2.9rem] items-center gap-2 rounded-full border border-slate-200 bg-white/92 px-3 py-2 shadow-[0_8px_18px_rgba(20,32,51,0.06)]">
+            <span className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+              Packages
+            </span>
+            <span className="font-display text-lg font-semibold text-slate-950">
+              {allPackages.length}
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => void refreshAll()}
+            disabled={isBusy}
+            className="admin-icon-btn"
+            aria-label="Refresh packages"
+            title="Refresh packages"
+          >
+            <svg
+              viewBox="0 0 20 20"
+              fill="none"
+              className={cn(
+                "h-4 w-4 text-slate-700",
+                busyAction === "refresh" ? "animate-spin" : "",
+              )}
+              aria-hidden="true"
+            >
+              <path
+                d="M16.5 10A6.5 6.5 0 0 1 5.41 14.59"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+              />
+              <path
+                d="M4.5 10A6.5 6.5 0 0 1 14.59 5.41"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+              />
+              <path
+                d="M6.1 14.75H5v-1.1"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+              <path
+                d="M13.9 5.25H15v1.1"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </button>
+        </>
+      }
     >
       <Toaster toasts={toasts} dismiss={dismissToast} />
 
-      <section className="glass-card mb-5 overflow-hidden">
-        <div className="border-b border-slate-200/70 px-5 py-4">
-          <p className="label-kicker">Current Processing Week</p>
-        </div>
-        <div className="grid gap-4 p-5 md:grid-cols-3">
-          <div className="metric-tile px-4 py-4">
-            <p className="label-kicker">Label</p>
-            <p className="mt-2 text-lg font-semibold text-slate-950">
-              {currentWeek?.label ?? "No active week"}
-            </p>
-          </div>
-          <div className="metric-tile px-4 py-4">
-            <p className="label-kicker">Week End</p>
-            <p className="mt-2 text-lg font-semibold text-slate-950">
-              {currentWeek ? formatAccraDateTime(currentWeek.end_at) : "-"}
-            </p>
-          </div>
-          <div className="metric-tile px-4 py-4">
-            <p className="label-kicker">Time Left</p>
-            <p className="mt-2 text-lg font-semibold text-slate-950">{currentWeekRemaining}</p>
-          </div>
-        </div>
-      </section>
-
-      <section className="mb-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <article className="metric-tile px-5 py-5">
-          <p className="label-kicker">Packages</p>
-          <p className="font-display mt-3 text-3xl font-semibold text-slate-950">
-            {displayedMetrics.packageCount}
-          </p>
-        </article>
+      <section className="mb-5 grid gap-4 md:grid-cols-3">
         <article className="metric-tile px-5 py-5">
           <p className="label-kicker">Active Week</p>
           <p className="mt-3 text-lg font-semibold text-slate-950">
@@ -1018,7 +1058,7 @@ export function PackagesPageClient({
             >
               {LAUNDRY_WORKERS.map((worker) => (
                 <option key={worker} value={worker}>
-                  Intake Worker: {getWorkerLabel(worker)}
+                  {getWorkerLabel(worker)}
                 </option>
               ))}
             </select>
@@ -1089,17 +1129,9 @@ export function PackagesPageClient({
               >
                 {busyAction === "createPackage" ? "Creating..." : "Create Package"}
               </button>
-              <button
-                type="button"
-                onClick={() => void refreshAll()}
-                disabled={isBusy}
-                className="btn btn-secondary"
-              >
-                {busyAction === "refresh" ? "Refreshing..." : "Refresh"}
-              </button>
               {!currentWeek ? (
                 <p className="w-full text-xs text-amber-700">
-                  Start a processing week on /admin/private before creating packages.
+                  Start a week at /admin/private before creating packages.
                 </p>
               ) : null}
             </div>
@@ -1141,27 +1173,22 @@ export function PackagesPageClient({
 
       <section className="glass-card overflow-hidden">
         <div className="border-b border-slate-200/70 px-5 py-4">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-            <div>
-              <p className="label-kicker">Package Tracking Table</p>
-              <p className="mt-2 text-sm leading-6 text-slate-600">
-                Filter locally for faster lookup and cleaner status management.
-              </p>
-            </div>
-            <div className="flex flex-col gap-2 sm:flex-row">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <p className="label-kicker">Package Tracking</p>
+            <div className="grid gap-2 lg:min-w-0 lg:flex-1 lg:grid-cols-[minmax(0,1.7fr)_minmax(10.5rem,0.7fr)_minmax(10.5rem,0.7fr)_auto]">
               <input
                 type="text"
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
-                placeholder="Search order, room, customer"
-                className="input-control"
+                placeholder="Search order, customer, room, phone"
+                className="input-control lg:min-w-0"
               />
               <select
                 value={statusFilter}
                 onChange={(event) =>
                   setStatusFilter(event.target.value as PackageStatus | "ALL")
                 }
-                className="input-control min-w-[180px]"
+                className="input-control min-w-[160px]"
               >
                 <option value="ALL">All statuses</option>
                 {(Object.keys(STATUS_ORDER) as PackageStatus[]).map((status) => (
@@ -1175,7 +1202,7 @@ export function PackagesPageClient({
                 onChange={(event) =>
                   setPaymentFilter(event.target.value as PaymentStatusFilter)
                 }
-                className="input-control min-w-[180px]"
+                className="input-control min-w-[160px]"
               >
                 <option value="ALL">All payments</option>
                 {PAYMENT_STATUS_OPTIONS.filter((status) => status !== "ALL").map((status) => (
@@ -1187,7 +1214,7 @@ export function PackagesPageClient({
               <button
                 type="button"
                 onClick={() => setSortDescending((prev) => !prev)}
-                className="btn btn-secondary"
+                className="btn btn-secondary justify-self-start lg:justify-self-end"
               >
                 Sort {sortDescending ? "↓" : "↑"}
               </button>
@@ -1207,9 +1234,10 @@ export function PackagesPageClient({
                     {pkg.customer_name} • Room {pkg.room_number}
                   </p>
                 </div>
-                <span className={cn("status-chip", statusPill(pkg.status))}>
-                  {getCompactStatusLabel(pkg.status)}
-                </span>
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  {renderPaymentControls(pkg)}
+                  {renderStatusControl(pkg, true)}
+                </div>
               </div>
 
               <div className="mt-4 grid gap-3 sm:grid-cols-2">
@@ -1217,6 +1245,18 @@ export function PackagesPageClient({
                   <p className="label-kicker">Package</p>
                   <p className="mt-2 text-sm font-semibold text-slate-950">
                     {getCompactPackageTypeLabel(pkg.package_type)}
+                  </p>
+                </div>
+                <div className="surface-subtle px-4 py-3">
+                  <p className="label-kicker">Phone</p>
+                  <p className="mt-2 text-sm font-semibold text-slate-950">
+                    {pkg.primary_phone}
+                  </p>
+                </div>
+                <div className="surface-subtle px-4 py-3">
+                  <p className="label-kicker">Clothes</p>
+                  <p className="mt-2 text-sm font-semibold text-slate-950">
+                    {pkg.clothes_count}
                   </p>
                 </div>
                 <div className="surface-subtle px-4 py-3">
@@ -1232,18 +1272,9 @@ export function PackagesPageClient({
                   </p>
                 </div>
                 <div className="surface-subtle px-4 py-3">
-                  <p className="label-kicker">Payment</p>
-                  <div className="mt-2">{renderPaymentControls(pkg)}</div>
-                </div>
-                <div className="surface-subtle px-4 py-3">
                   <p className="label-kicker">SMS</p>
-                  <div className="mt-2 text-sm text-slate-700">{renderSmsInfo(pkg)}</div>
+                  <div className="mt-2">{renderSmsInfo(pkg)}</div>
                 </div>
-              </div>
-
-              <div className="mt-4 rounded-[1.1rem] border border-slate-200 bg-white/82 p-4">
-                <p className="label-kicker">Update Status</p>
-                <div className="mt-3">{renderStatusUpdateControls(pkg)}</div>
               </div>
             </article>
           ))}
@@ -1255,7 +1286,7 @@ export function PackagesPageClient({
         </div>
 
         <div className="table-wrap hidden md:block">
-          <table className="data-table min-w-[1020px]">
+          <table className="data-table compact-table min-w-[1080px]">
             <thead>
               <tr className="text-left">
                 <th className="font-semibold">Order</th>
@@ -1266,10 +1297,9 @@ export function PackagesPageClient({
                 <th className="font-semibold">Room</th>
                 <th className="font-semibold">Weight</th>
                 <th className="font-semibold">Price</th>
-                <th className="w-[11rem] min-w-[11rem] font-semibold">Payment</th>
-                <th className="font-semibold">Status</th>
-                <th className="w-[10rem] min-w-[10rem] font-semibold">Update</th>
-                <th className="w-[13rem] min-w-[13rem] font-semibold">SMS</th>
+                <th className="w-[7.5rem] min-w-[7.5rem] font-semibold">Payment</th>
+                <th className="w-[11rem] min-w-[11rem] font-semibold">Status</th>
+                <th className="w-[11rem] min-w-[11rem] font-semibold">SMS</th>
               </tr>
             </thead>
             <tbody>
@@ -1283,30 +1313,20 @@ export function PackagesPageClient({
                   <td>{pkg.room_number}</td>
                   <td>{pkg.total_weight_kg.toFixed(2)} kg</td>
                   <td className="whitespace-nowrap">{pkg.total_price_ghs.toFixed(2)}</td>
-                  <td className="w-[11rem] min-w-[11rem]">
+                  <td className="w-[7.5rem] min-w-[7.5rem]">
                     {renderPaymentControls(pkg)}
                   </td>
-                  <td>
-                    <span
-                      className={cn(
-                        "status-chip",
-                        statusPill(pkg.status),
-                      )}
-                    >
-                      {getCompactStatusLabel(pkg.status)}
-                    </span>
+                  <td className="w-[11rem] min-w-[11rem]">
+                    {renderStatusControl(pkg)}
                   </td>
-                  <td className="w-[10rem] min-w-[10rem]">
-                    {renderStatusUpdateControls(pkg)}
-                  </td>
-                  <td className="w-[13rem] min-w-[13rem]">
+                  <td className="w-[11rem] min-w-[11rem]">
                     {renderSmsInfo(pkg)}
                   </td>
                 </tr>
               ))}
               {visiblePackages.length === 0 ? (
                 <tr>
-                  <td colSpan={12} className="py-10 text-center text-slate-500">
+                  <td colSpan={11} className="py-10 text-center text-slate-500">
                     No packages match the current live filters.
                   </td>
                 </tr>
@@ -1324,9 +1344,6 @@ export function PackagesPageClient({
               <h3 className="font-display mt-2 text-2xl font-semibold text-slate-950">
                 {statusDialog.orderId}
               </h3>
-              <p className="mt-2 text-sm leading-6 text-slate-600">
-                This step saves automatically as soon as the needed worker details are filled.
-              </p>
             </div>
 
             <div className="grid gap-4 p-5">
@@ -1354,88 +1371,44 @@ export function PackagesPageClient({
                       Removed From Line
                       {statusDialog.foldCompleted ? " + Folded" : ""}
                     </p>
-                    <p className="mt-2 text-sm leading-6 text-slate-600">
-                      Your side covers this ready-for-pickup work.
-                    </p>
+                    <p className="mt-2 text-sm font-medium text-slate-500">Your Side</p>
                   </div>
                   <div className="grid gap-4 md:grid-cols-2">
                     <div className="metric-tile p-4">
                       <p className="label-kicker">Remove Worker</p>
-                      <select
-                        value={statusDialog.removeWorkerName}
-                        disabled={isBusy}
-                        onChange={(event) => {
-                          const nextDialog = {
-                            ...statusDialog,
-                            removeWorkerName: event.target.value as LaundryWorker,
-                          };
-                          setStatusDialog(nextDialog);
-                          submitStatusDialog(nextDialog);
-                        }}
-                        className="input-control mt-3"
-                      >
-                        <option value="">Choose worker</option>
-                        {LAUNDRY_WORKERS.map((worker) => (
-                          <option key={worker} value={worker}>
-                            {getWorkerLabel(worker)}
-                          </option>
-                        ))}
-                      </select>
+                      {renderWorkerChoices(statusDialog.removeWorkerName, (worker) => {
+                        const nextDialog = {
+                          ...statusDialog,
+                          removeWorkerName: worker,
+                        };
+                        setStatusDialog(nextDialog);
+                        submitStatusDialog(nextDialog);
+                      })}
                     </div>
                     <div className="metric-tile p-4">
                       <p className="label-kicker">Folded?</p>
-                      <select
-                        value={
-                          statusDialog.foldCompleted === null
-                            ? ""
-                            : statusDialog.foldCompleted
-                              ? "YES"
-                              : "NO"
-                        }
-                        disabled={isBusy}
-                        onChange={(event) => {
-                          const foldCompleted = event.target.value === "YES";
-                          const nextDialog = {
-                            ...statusDialog,
-                            foldCompleted:
-                              event.target.value === ""
-                                ? null
-                                : foldCompleted,
-                          };
-                          setStatusDialog(nextDialog);
-                          submitStatusDialog(nextDialog);
-                        }}
-                        className="input-control mt-3"
-                      >
-                        <option value="">Choose fold step</option>
-                        <option value="NO">No</option>
-                        <option value="YES">Yes</option>
-                      </select>
+                      {renderFoldChoices(statusDialog.foldCompleted, (value) => {
+                        const nextDialog = {
+                          ...statusDialog,
+                          foldCompleted: value,
+                          foldWorkerName: value ? statusDialog.foldWorkerName : "",
+                        };
+                        setStatusDialog(nextDialog);
+                        submitStatusDialog(nextDialog);
+                      })}
                     </div>
                   </div>
                   {statusDialog.foldCompleted ? (
                     <div className="metric-tile p-4">
                       <p className="label-kicker">Fold Worker</p>
-                      <select
-                        value={statusDialog.foldWorkerName}
-                        disabled={isBusy}
-                        onChange={(event) => {
-                          const nextDialog = {
-                            ...statusDialog,
-                            foldWorkerName: event.target.value as LaundryWorker,
-                          };
-                          setStatusDialog(nextDialog);
-                          submitStatusDialog(nextDialog);
-                        }}
-                        className="input-control mt-3"
-                      >
-                        <option value="">Choose worker</option>
-                        {LAUNDRY_WORKERS.map((worker) => (
-                          <option key={worker} value={worker}>
-                            {getWorkerLabel(worker)}
-                          </option>
-                        ))}
-                      </select>
+                      {renderWorkerChoices(statusDialog.foldWorkerName, (worker) => {
+                        const nextDialog = {
+                          ...statusDialog,
+                          foldWorkerName: worker,
+                        };
+                        setStatusDialog(nextDialog);
+                        submitStatusDialog(nextDialog);
+                      })}
                     </div>
                   ) : null}
                 </div>
@@ -1447,33 +1420,21 @@ export function PackagesPageClient({
                     <p className="mt-2 text-lg font-semibold text-slate-950">
                       Removed and Folded From Dryer
                     </p>
-                    <p className="mt-2 text-sm leading-6 text-slate-600">
-                      Owner side: {getOwnerSideLabel("PARTNER_SIDE")}
+                    <p className="mt-2 text-sm font-medium text-slate-500">
+                      {getOwnerSideLabel("PARTNER_SIDE")}
                     </p>
                   </div>
 
                   <div className="metric-tile p-4">
                     <p className="label-kicker">Worker</p>
-                    <select
-                      value={statusDialog.removeWorkerName}
-                      disabled={isBusy}
-                      onChange={(event) => {
+                    {renderWorkerChoices(statusDialog.removeWorkerName, (worker) => {
                         const nextDialog = {
                           ...statusDialog,
-                          removeWorkerName: event.target.value as LaundryWorker,
+                          removeWorkerName: worker,
                         };
                         setStatusDialog(nextDialog);
                         submitStatusDialog(nextDialog);
-                      }}
-                      className="input-control mt-3"
-                      >
-                        <option value="">Choose worker</option>
-                        {LAUNDRY_WORKERS.map((worker) => (
-                          <option key={worker} value={worker}>
-                            {getWorkerLabel(worker)}
-                          </option>
-                        ))}
-                    </select>
+                    })}
                   </div>
                 </div>
               ) : getPayableTaskForStatus(
@@ -1493,8 +1454,8 @@ export function PackagesPageClient({
                         )
                       }
                     </p>
-                    <p className="mt-2 text-sm leading-6 text-slate-600">
-                      Owner side: {
+                    <p className="mt-2 text-sm font-medium text-slate-500">
+                      {
                         getOwnerSideLabel(
                           getPayableTaskForStatus(
                             statusDialog.packageType,
@@ -1507,29 +1468,14 @@ export function PackagesPageClient({
 
                   <div className="metric-tile p-4">
                     <p className="label-kicker">Worker</p>
-                    <select
-                      value={statusDialog.workerName}
-                      disabled={isBusy}
-                      onChange={(event) => {
+                    {renderWorkerChoices(statusDialog.workerName, (worker) => {
                         const nextDialog = {
                           ...statusDialog,
-                          workerName: event.target.value as LaundryWorker,
+                          workerName: worker,
                         };
                         setStatusDialog(nextDialog);
                         submitStatusDialog(nextDialog);
-                      }}
-                      className="input-control mt-3"
-                    >
-                      <option value="">Choose worker</option>
-                      {LAUNDRY_WORKERS.map((worker) => (
-                        <option key={worker} value={worker}>
-                          {getWorkerLabel(worker)}
-                        </option>
-                      ))}
-                    </select>
-                    <p className="mt-2 text-sm leading-6 text-slate-500">
-                      Choose <span className="font-semibold">Nobody</span> if you handled this task yourself.
-                    </p>
+                    })}
                   </div>
                 </div>
               ) : (
@@ -1545,10 +1491,6 @@ export function PackagesPageClient({
                 <button
                   type="button"
                   onClick={() => {
-                    setStatusDrafts((prev) => ({
-                      ...prev,
-                      [statusDialog.packageId]: statusDialog.currentStatus,
-                    }));
                     setStatusDialog(null);
                   }}
                   disabled={isBusy}
