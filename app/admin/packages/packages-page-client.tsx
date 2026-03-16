@@ -599,8 +599,14 @@ export function PackagesPageClient({
     const nextStatus = getStatusOptionsForPackage(pkg.package_type, pkg.status)[1];
 
     return (
-      <div className="flex items-center gap-2 whitespace-nowrap">
-        <span className={cn("status-chip", statusPill(pkg.status))}>
+      <div className={cn("flex items-center whitespace-nowrap", compact ? "gap-1.5" : "gap-2")}>
+        <span
+          className={cn(
+            "status-chip",
+            compact ? "px-2.5 py-2 text-[0.72rem]" : "",
+            statusPill(pkg.status),
+          )}
+        >
           {getCompactStatusLabel(pkg.status)}
         </span>
         {nextStatus ? (
@@ -669,7 +675,7 @@ export function PackagesPageClient({
     }
   }
 
-  function renderPaymentControls(pkg: PackageRecord) {
+  function renderPaymentControls(pkg: PackageRecord, compact = false) {
     const isPaid = pkg.payment_status === "PAID";
     const nextStatus = isPaid ? "UNPAID" : "PAID";
 
@@ -679,7 +685,8 @@ export function PackagesPageClient({
         onClick={() => void handlePaymentStatusChange(pkg.id, pkg.order_id, nextStatus)}
         disabled={isBusy}
         className={cn(
-          "status-chip min-w-[5.8rem] justify-center border px-3 py-2 text-[0.75rem] transition",
+          "status-chip justify-center border transition",
+          compact ? "min-w-[4.9rem] px-2.5 py-2 text-[0.72rem]" : "min-w-[5.8rem] px-3 py-2 text-[0.75rem]",
           isPaid
             ? "border-emerald-200 bg-emerald-100 text-emerald-700"
             : "border-slate-200 bg-slate-100 text-slate-700",
@@ -1164,17 +1171,17 @@ export function PackagesPageClient({
         <div className="space-y-4 p-4 md:hidden">
           {visiblePackages.map((pkg) => (
             <article key={pkg.id} className="metric-tile p-4">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div className="min-w-0">
                   <p className="font-display text-xl font-semibold text-slate-950">
                     {pkg.order_id}
                   </p>
-                  <p className="mt-1 text-sm leading-6 text-slate-600">
+                  <p className="mt-1 break-words text-sm leading-5 text-slate-600">
                     {pkg.customer_name} • Room {pkg.room_number}
                   </p>
                 </div>
-                <div className="flex flex-wrap items-center justify-end gap-2">
-                  {renderPaymentControls(pkg)}
+                <div className="grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-2 sm:flex sm:w-auto sm:flex-wrap sm:justify-end">
+                  {renderPaymentControls(pkg, true)}
                   {renderStatusControl(pkg, true)}
                 </div>
               </div>

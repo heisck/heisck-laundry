@@ -43,7 +43,7 @@ export function AdminShell({
   const supabase = createSupabaseBrowserClient();
 
   const [openMenuForPath, setOpenMenuForPath] = useState<string | null>(null);
-  const [clock, setClock] = useState(() => formatAccraClockTime(new Date()));
+  const [clock, setClock] = useState<string | null>(null);
   const [signingOut, setSigningOut] = useState(false);
 
   const adminInitials = useMemo(() => getAdminInitials(userEmail), [userEmail]);
@@ -67,10 +67,10 @@ export function AdminShell({
     <div className="min-h-screen bg-transparent">
       <div className="mx-auto max-w-[1600px] px-4 py-4 md:px-6 lg:px-8">
         <header className="admin-topbar mb-5 flex items-center gap-2 px-4 py-3 md:gap-3 md:px-5">
-          <div className="flex min-w-0 items-center gap-3">
+          <div className="flex min-w-0 items-center gap-2 sm:gap-3">
             <Link
               href="/admin/packages"
-              className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full border border-cyan-200 bg-white shadow-sm sm:h-16 sm:w-16"
+              className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full border border-cyan-200 bg-white shadow-sm sm:h-16 sm:w-16"
             >
               <Image
                 src="/web-app-manifest-192x192.png"
@@ -83,8 +83,8 @@ export function AdminShell({
             </Link>
           </div>
 
-          <div className="ml-auto flex shrink-0 items-center justify-end gap-1.5 sm:gap-2 md:gap-3">
-            <div className="relative">
+          <div className="ml-auto flex min-w-0 flex-1 items-center justify-end gap-1 sm:gap-2 md:gap-3">
+            <div className="relative shrink-0">
               <button
                 type="button"
                 onClick={() =>
@@ -104,7 +104,7 @@ export function AdminShell({
               </button>
 
               {menuOpen ? (
-                <div className="absolute right-0 top-[calc(100%+0.75rem)] z-50 w-52 rounded-[1.2rem] border border-slate-200 bg-white p-2 shadow-[0_18px_42px_rgba(15,35,53,0.12)]">
+                <div className="topbar-menu-popover absolute right-0 top-[calc(100%+0.75rem)] z-50 w-52 rounded-[1.2rem] border border-slate-200 bg-white p-2 shadow-[0_18px_42px_rgba(15,35,53,0.12)]">
                   <div className="space-y-1">
                     {NAV_ITEMS.map((item) => {
                       const active =
@@ -145,7 +145,8 @@ export function AdminShell({
             {headerExtras ?? null}
 
             <div className="admin-time-pill" suppressHydrationWarning>
-              {clock ?? "--:--:--"}
+              <span className="sm:hidden">{clock?.slice(0, 5) ?? "--:--"}</span>
+              <span className="hidden sm:inline">{clock ?? "--:--:--"}</span>
             </div>
 
             <div className="admin-profile-badge" title={userEmail}>

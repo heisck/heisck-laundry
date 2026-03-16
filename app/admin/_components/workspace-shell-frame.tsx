@@ -75,11 +75,11 @@ function WorkspaceHeaderExtras({
           />
         </svg>
       </button>
-      <div className="topbar-counter inline-flex min-h-[2.9rem] items-center gap-2 rounded-full border border-slate-200 bg-white/92 px-3 py-2 shadow-[0_8px_18px_rgba(20,32,51,0.06)]">
+      <div className="topbar-counter inline-flex min-h-[2.4rem] items-center gap-1.5 rounded-full border border-slate-200 bg-white/92 px-2.5 py-1.5 shadow-[0_8px_18px_rgba(20,32,51,0.06)] sm:min-h-[2.9rem] sm:gap-2 sm:px-3 sm:py-2">
         <span className="hidden text-xs font-semibold uppercase tracking-[0.12em] text-slate-500 sm:inline">
           Packages
         </span>
-        <span className="font-display text-base font-semibold text-slate-950 sm:text-lg">
+        <span className="font-display text-sm font-semibold text-slate-950 sm:text-lg">
           {config.packageCount}
         </span>
       </div>

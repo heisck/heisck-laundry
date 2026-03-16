@@ -105,11 +105,16 @@ textarea {
   position: sticky;
   top: 1rem;
   z-index: 40;
+  overflow: visible;
   border: 1px solid rgba(77, 92, 108, 0.12);
   border-radius: 1.45rem;
   background: rgba(255, 255, 255, 0.9);
   box-shadow: 0 16px 34px rgba(20, 32, 51, 0.08);
   backdrop-filter: blur(18px);
+}
+
+.topbar-menu-popover {
+  max-width: calc(100vw - 2rem);
 }
 
 .admin-time-pill {
@@ -197,6 +202,43 @@ textarea {
 
   .topbar-counter .font-display {
     font-size: 0.94rem;
+  }
+}
+
+@media (max-width: 767px) {
+  .topbar-menu-popover {
+    left: 0;
+    right: auto;
+    width: min(11rem, calc(100vw - 2rem));
+  }
+}
+
+@media (max-width: 359px) {
+  .admin-topbar {
+    gap: 0.35rem;
+    padding: 0.58rem 0.6rem;
+  }
+
+  .admin-time-pill {
+    min-height: 2.15rem;
+    min-width: 4.65rem;
+    padding: 0.38rem 0.48rem;
+    font-size: 0.68rem;
+  }
+
+  .admin-icon-btn,
+  .admin-profile-badge {
+    height: 2.15rem;
+    width: 2.15rem;
+  }
+
+  .topbar-counter {
+    min-height: 2.15rem;
+    padding: 0.35rem 0.48rem;
+  }
+
+  .topbar-counter .font-display {
+    font-size: 0.82rem;
   }
 }
 

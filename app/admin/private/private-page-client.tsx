@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
 
 import { buildDashboardMetrics } from "@/lib/dashboard-metrics";
 import { formatAccraDateTime } from "@/lib/time";
@@ -49,8 +48,59 @@ function SkeletonPrivatePage({ userEmail }: { userEmail: string }) {
   );
 }
 
+function PrivateHeaderExtras({
+  refreshing,
+  onRefresh,
+}: {
+  refreshing: boolean;
+  onRefresh: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onRefresh}
+      className="admin-icon-btn"
+      aria-label="Refresh private page"
+      title="Refresh private page"
+    >
+      <svg
+        viewBox="0 0 20 20"
+        fill="none"
+        className={`h-4 w-4 text-slate-700 ${refreshing ? "animate-spin" : ""}`}
+        aria-hidden="true"
+      >
+        <path
+          d="M16.5 10A6.5 6.5 0 0 1 5.41 14.59"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+        />
+        <path
+          d="M4.5 10A6.5 6.5 0 0 1 14.59 5.41"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+        />
+        <path
+          d="M6.1 14.75H5v-1.1"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+        <path
+          d="M13.9 5.25H15v1.1"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+    </button>
+  );
+}
+
 export function PrivatePageClient({ userEmail }: { userEmail: string }) {
-  const router = useRouter();
   const { toasts, dismissToast, pushToast } = useToasts();
 
   const [currentWeek, setCurrentWeek] = useState<ProcessingWeek | null>(null);
@@ -61,7 +111,6 @@ export function PrivatePageClient({ userEmail }: { userEmail: string }) {
   const [startWeekLabel, setStartWeekLabel] = useState("");
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [locking, setLocking] = useState(false);
   const [startingWeek, setStartingWeek] = useState(false);
   const [closingWeek, setClosingWeek] = useState(false);
   const [newPassword, setNewPassword] = useState("");
@@ -119,26 +168,6 @@ export function PrivatePageClient({ userEmail }: { userEmail: string }) {
       if (showLoader) {
         setLoading(false);
       }
-    }
-  }
-
-  async function handleLock() {
-    setLocking(true);
-
-    try {
-      const response = await fetchWithTimeout("/api/admin/private-access", {
-        method: "DELETE",
-      });
-      await parseApiResponse<{ success: boolean }>(response);
-      router.refresh();
-    } catch (error) {
-      pushToast(
-        "error",
-        "Unable to lock private view",
-        error instanceof Error ? error.message : "Unknown error",
-      );
-    } finally {
-      setLocking(false);
     }
   }
 
@@ -258,6 +287,12 @@ export function PrivatePageClient({ userEmail }: { userEmail: string }) {
       userEmail={userEmail}
       title="Private"
       subtitle="Admin-only totals protected by a second password."
+      headerExtras={
+        <PrivateHeaderExtras
+          refreshing={refreshing}
+          onRefresh={() => void refresh()}
+        />
+      }
     >
       <Toaster toasts={toasts} dismiss={dismissToast} />
 
@@ -297,31 +332,25 @@ export function PrivatePageClient({ userEmail }: { userEmail: string }) {
             </h3>
           </div>
           <div className="space-y-4 p-5">
-            <div className="metric-tile p-4">
-              <p className="label-kicker">Active Week</p>
-              <p className="mt-2 text-lg font-semibold text-slate-950">
-                {currentWeek?.label ?? "No active week"}
-              </p>
-            </div>
-            <div className="grid gap-4 md:grid-cols-3">
-              <div className="metric-tile p-4">
-                <p className="label-kicker">Start</p>
-                <p className="mt-2 text-sm font-semibold text-slate-950">
-                  {currentWeek ? formatAccraDateTime(currentWeek.start_at) : "-"}
+            <div className="surface-subtle px-4 py-4">
+              {currentWeek ? (
+                <p className="text-sm leading-6 text-slate-700">
+                  <span className="font-semibold text-slate-950">{currentWeek.label}</span>
+                  {" "}is active from{" "}
+                  <span className="font-medium text-slate-950">
+                    {formatAccraDateTime(currentWeek.start_at)}
+                  </span>
+                  {" "}to{" "}
+                  <span className="font-medium text-slate-950">
+                    {formatAccraDateTime(currentWeek.end_at)}
+                  </span>
+                  . {currentWeekRemaining}.
                 </p>
-              </div>
-              <div className="metric-tile p-4">
-                <p className="label-kicker">End</p>
-                <p className="mt-2 text-sm font-semibold text-slate-950">
-                  {currentWeek ? formatAccraDateTime(currentWeek.end_at) : "-"}
+              ) : (
+                <p className="text-sm leading-6 text-slate-700">
+                  No active week right now. Start a new processing week from the form beside this card.
                 </p>
-              </div>
-              <div className="metric-tile p-4">
-                <p className="label-kicker">Time Left</p>
-                <p className="mt-2 text-sm font-semibold text-slate-950">
-                  {currentWeekRemaining}
-                </p>
-              </div>
+              )}
             </div>
             <div className="flex flex-wrap gap-3">
               <button
@@ -331,14 +360,6 @@ export function PrivatePageClient({ userEmail }: { userEmail: string }) {
                 className="btn btn-accent"
               >
                 {closingWeek ? "Ending week..." : "End Current Week"}
-              </button>
-              <button
-                type="button"
-                onClick={() => void refresh()}
-                disabled={refreshing}
-                className="btn btn-secondary"
-              >
-                {refreshing ? "Refreshing..." : "Refresh Private"}
               </button>
             </div>
           </div>
@@ -378,38 +399,7 @@ export function PrivatePageClient({ userEmail }: { userEmail: string }) {
         </article>
       </section>
 
-      <section className="mb-5 grid gap-5 lg:grid-cols-[0.95fr_1.05fr]">
-        <article className="glass-card overflow-hidden">
-          <div className="border-b border-slate-200/70 px-5 py-4">
-            <p className="label-kicker">Private Controls</p>
-            <h3 className="font-display mt-2 text-2xl font-semibold text-slate-950">
-              Protected totals only
-            </h3>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
-              Total weight and total amount made combine closed weeks with active packages.
-              Partner amount made and total express kg come from the express business summary.
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-3 p-5">
-            <button
-              type="button"
-              onClick={() => void refresh()}
-              disabled={refreshing}
-              className="btn btn-secondary"
-            >
-              {refreshing ? "Refreshing..." : "Refresh Totals"}
-            </button>
-            <button
-              type="button"
-              onClick={() => void handleLock()}
-              disabled={locking}
-              className="btn btn-secondary"
-            >
-              {locking ? "Locking..." : "Lock Private View"}
-            </button>
-          </div>
-        </article>
-
+      <section className="mb-5">
         <article className="glass-card overflow-hidden">
           <div className="border-b border-slate-200/70 px-5 py-4">
             <p className="label-kicker">Private Password</p>
