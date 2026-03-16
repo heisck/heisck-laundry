@@ -66,14 +66,14 @@ export function AdminShell({
   return (
     <div className="min-h-screen bg-transparent">
       <div className="mx-auto max-w-[1600px] px-4 py-4 md:px-6 lg:px-8">
-        <header className="admin-topbar mb-5 flex items-center justify-between gap-3 px-4 py-3 md:px-5">
+        <header className="admin-topbar mb-5 flex flex-wrap items-center gap-3 px-4 py-3 md:px-5">
           <div className="flex min-w-0 items-center gap-3">
             <Link
               href="/admin/packages"
               className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-full border border-cyan-200 bg-white shadow-sm"
             >
               <Image
-                src="/heisck-laundry-logo.svg"
+                src="/web-app-manifest-192x192.png"
                 alt="Heisck Laundry logo"
                 width={64}
                 height={64}
@@ -83,7 +83,7 @@ export function AdminShell({
             </Link>
           </div>
 
-          <div className="flex flex-wrap items-center justify-end gap-2 md:gap-3">
+          <div className="ml-auto flex flex-wrap items-center justify-end gap-2 md:gap-3">
             <div className="relative">
               <button
                 type="button"
@@ -116,14 +116,13 @@ export function AdminShell({
                           href={item.href}
                           onClick={() => setOpenMenuForPath(null)}
                           className={cn(
-                            "flex items-center justify-between rounded-[0.95rem] px-3 py-2.5 text-sm font-semibold transition",
+                            "flex items-center rounded-[0.95rem] px-3 py-2.5 text-sm font-semibold transition",
                             active
                               ? "bg-teal-50 text-teal-800"
                               : "text-slate-700 hover:bg-slate-50",
                           )}
                         >
                           <span>{item.label}</span>
-                          {active ? <span className="text-xs">Current</span> : null}
                         </Link>
                       );
                     })}

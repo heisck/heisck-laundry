@@ -925,14 +925,6 @@ export function PackagesPageClient({
       subtitle="Create customer packages, track updates, and manage status changes."
       headerExtras={
         <>
-          <div className="inline-flex min-h-[2.9rem] items-center gap-2 rounded-full border border-slate-200 bg-white/92 px-3 py-2 shadow-[0_8px_18px_rgba(20,32,51,0.06)]">
-            <span className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
-              Packages
-            </span>
-            <span className="font-display text-lg font-semibold text-slate-950">
-              {allPackages.length}
-            </span>
-          </div>
           <button
             type="button"
             onClick={() => void refreshAll()}
@@ -978,6 +970,14 @@ export function PackagesPageClient({
               />
             </svg>
           </button>
+          <div className="inline-flex min-h-[2.9rem] items-center gap-2 rounded-full border border-slate-200 bg-white/92 px-3 py-2 shadow-[0_8px_18px_rgba(20,32,51,0.06)]">
+            <span className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+              Packages
+            </span>
+            <span className="font-display text-lg font-semibold text-slate-950">
+              {allPackages.length}
+            </span>
+          </div>
         </>
       }
     >
