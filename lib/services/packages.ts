@@ -119,6 +119,9 @@ function mapPackage(row: Record<string, unknown>): PackageRecord {
     updated_at: new Date(String(row.updated_at)).toISOString(),
     picked_up_at: row.picked_up_at ? new Date(String(row.picked_up_at)).toISOString() : null,
     expires_at: new Date(String(row.expires_at)).toISOString(),
+    payment_status: String(row.payment_status ?? "UNPAID") as PackageRecord["payment_status"],
+    payment_reference: row.payment_reference ? String(row.payment_reference) : null,
+    payment_paid_at: row.payment_paid_at ? new Date(String(row.payment_paid_at)).toISOString() : null,
     week_status: String(row.week_status ?? "ACTIVE") as PackageRecord["week_status"],
     last_delivery_state: row.last_delivery_state
       ? String(row.last_delivery_state)
@@ -640,7 +643,10 @@ export async function createPackage(
               created_at,
               updated_at,
               picked_up_at,
-              expires_at
+              expires_at,
+              payment_status,
+              payment_reference,
+              payment_paid_at
             )
           values
             (
@@ -661,7 +667,10 @@ export async function createPackage(
               now(),
               now(),
               null,
-              ${expiresAt.toISOString()}
+              ${expiresAt.toISOString()},
+              'UNPAID',
+              null,
+              null
             )
           on conflict (order_id) do nothing
           returning *
@@ -681,6 +690,9 @@ export async function createPackage(
         const row = rows[0] as Record<string, unknown>;
         return {
           ...row,
+          payment_status: "UNPAID",
+          payment_reference: null,
+          payment_paid_at: null,
           week_status: "ACTIVE",
           last_delivery_state: null,
           last_notification_at: null,

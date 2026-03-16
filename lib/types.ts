@@ -80,6 +80,9 @@ export interface PackageRecord {
   updated_at: string;
   picked_up_at: string | null;
   expires_at: string;
+  payment_status: "UNPAID" | "PENDING" | "PAID";
+  payment_reference: string | null;
+  payment_paid_at: string | null;
   week_status: ProcessingWeekStatus;
   last_delivery_state: string | null;
   last_notification_at: string | null;
