@@ -1,3 +1,4 @@
+import Image from "next/image";
 import Link from "next/link";
 
 import { getPackageTypeLabel } from "@/lib/package-pricing";
@@ -50,9 +51,52 @@ function statusPill(status: PackageStatus): string {
   return "border-slate-200 bg-slate-100 text-slate-700";
 }
 
+function paymentPill(status: PaymentStatus): string {
+  if (status === "PAID") {
+    return "border-emerald-200 bg-emerald-100 text-emerald-800";
+  }
+
+  if (status === "PENDING") {
+    return "border-amber-200 bg-amber-100 text-amber-800";
+  }
+
+  return "border-slate-200 bg-slate-100 text-slate-700";
+}
+
+function TrackingHeader({
+  rightContent,
+}: {
+  rightContent?: React.ReactNode;
+}) {
+  return (
+    <header className="admin-topbar mb-6 flex flex-wrap items-center gap-3 px-4 py-3 md:px-5">
+      <div className="flex min-w-0 items-center gap-3">
+        <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-full border border-cyan-200 bg-white shadow-sm">
+          <Image
+            src="/web-app-manifest-192x192.png"
+            alt="Heisck Laundry logo"
+            width={64}
+            height={64}
+            className="h-full w-full object-cover"
+            priority
+          />
+        </div>
+      </div>
+
+      {rightContent ? (
+        <div className="ml-auto flex flex-wrap items-center justify-end gap-2 md:gap-3">
+          {rightContent}
+        </div>
+      ) : null}
+    </header>
+  );
+}
+
 function ExpiredView() {
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-[1120px] items-center px-5 py-8 md:px-8">
+    <main className="mx-auto flex min-h-screen w-full max-w-[1260px] flex-col px-5 py-8 md:px-8">
+      <TrackingHeader />
+
       <section className="panel-hero w-full p-6 md:p-8">
         <p className="label-kicker">Tracking Session</p>
         <h1 className="font-display mt-3 text-3xl font-semibold tracking-tight text-amber-950 md:text-4xl">
@@ -148,32 +192,42 @@ export default async function TrackPackagePage({ params }: Params) {
 
   return (
     <main className="mx-auto w-full max-w-[1260px] px-5 py-8 md:px-8">
+      <TrackingHeader
+        rightContent={
+          <>
+            <span className={`status-chip border ${statusPill(record.status)}`}>
+              {getStatusLabel(record.status)}
+            </span>
+            <span className={`status-chip border ${paymentPill(record.payment_status)}`}>
+              {getPaymentLabel(record.payment_status, record.payment_source)}
+            </span>
+            {record.payment_status !== "PAID" ? (
+              <Link
+                href={`/api/track/${token}/pay`}
+                className="btn btn-primary min-h-[2.9rem] px-4 text-[0.82rem]"
+              >
+                Pay now with Paystack
+              </Link>
+            ) : null}
+          </>
+        }
+      />
+
       <section className="panel-hero mb-6 overflow-hidden px-6 py-6 md:px-8 md:py-8">
         <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
           <div className="max-w-3xl">
             <p className="label-kicker">Customer Tracking</p>
-            <div className="mt-4 flex items-center gap-4">
-              <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-[1.45rem] bg-gradient-to-br from-teal-600 to-sky-700 text-base font-extrabold tracking-[0.24em] text-white">
-                HL
-              </div>
-              <div>
-                <h1 className="font-display text-3xl font-semibold tracking-tight text-slate-950 md:text-4xl">
-                  Order {record.order_id}
-                </h1>
-                <p className="mt-2 text-base leading-7 text-slate-600 md:text-lg">
-                  Track the progress of your laundry package in real time.
-                </p>
-              </div>
+            <div className="mt-4">
+              <h1 className="font-display text-3xl font-semibold tracking-tight text-slate-950 md:text-4xl">
+                Order {record.order_id}
+              </h1>
+              <p className="mt-2 text-base leading-7 text-slate-600 md:text-lg">
+                Track the progress of your laundry package in real time.
+              </p>
+              <p className="mt-4 text-sm font-medium leading-6 text-slate-600">
+                Estimated completion: {formatAccraDateTime(record.eta_at)}
+              </p>
             </div>
-          </div>
-
-          <div className="flex flex-wrap gap-3">
-            <span className={`status-chip border ${statusPill(record.status)}`}>
-              {getStatusLabel(record.status)}
-            </span>
-            <span className="pill-soft">
-              Estimated completion: {formatAccraDateTime(record.eta_at)}
-            </span>
           </div>
         </div>
       </section>
@@ -188,10 +242,6 @@ export default async function TrackPackagePage({ params }: Params) {
             <InfoCard label="Clothes Count" value={String(record.clothes_count)} />
             <InfoCard label="Weight" value={`${Number(record.total_weight_kg).toFixed(2)} kg`} />
             <InfoCard label="Total Price" value={`GHS ${Number(record.total_price_ghs).toFixed(2)}`} />
-            <InfoCard
-              label="Payment"
-              value={getPaymentLabel(record.payment_status, record.payment_source)}
-            />
           </div>
         </article>
 
@@ -213,11 +263,6 @@ export default async function TrackPackagePage({ params }: Params) {
       </section>
 
       <section className="glass-card p-5 md:p-6">
-        {record.payment_status !== "PAID" ? (
-          <div className="mb-4">
-            <Link href={`/api/track/${token}/pay`} className="btn btn-primary">Pay now with Paystack</Link>
-          </div>
-        ) : null}
         <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
           <div>
             <p className="label-kicker">Laundry Progress</p>
