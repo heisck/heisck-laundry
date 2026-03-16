@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 import { getPackageTypeLabel } from "@/lib/package-pricing";
 import { getDb, withDbConnectionRetry } from "@/lib/db";
 import { getStatusLabel } from "@/lib/status";
@@ -23,7 +25,9 @@ interface TrackPackageRow {
   eta_at: string;
   expires_at: string;
   picked_up_at: string | null;
+  payment_status: "UNPAID" | "PENDING" | "PAID";
 }
+
 
 const STATUS_STEPS: PackageStatus[] = [
   "RECEIVED",
@@ -106,7 +110,8 @@ export default async function TrackPackagePage({ params }: Params) {
         status,
         eta_at,
         expires_at,
-        picked_up_at
+        picked_up_at,
+        payment_status
       from packages
       where id = ${tokenPayload.packageId}
         and tracking_token_id = ${tokenPayload.tokenId}
@@ -168,6 +173,7 @@ export default async function TrackPackagePage({ params }: Params) {
             <InfoCard label="Clothes Count" value={String(record.clothes_count)} />
             <InfoCard label="Weight" value={`${Number(record.total_weight_kg).toFixed(2)} kg`} />
             <InfoCard label="Total Price" value={`GHS ${Number(record.total_price_ghs).toFixed(2)}`} />
+            <InfoCard label="Payment" value={record.payment_status} />
           </div>
         </article>
 
@@ -189,6 +195,11 @@ export default async function TrackPackagePage({ params }: Params) {
       </section>
 
       <section className="glass-card p-5 md:p-6">
+        {record.payment_status !== "PAID" ? (
+          <div className="mb-4">
+            <Link href={`/api/track/${token}/pay`} className="btn btn-primary">Pay now with Paystack</Link>
+          </div>
+        ) : null}
         <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
           <div>
             <p className="label-kicker">Laundry Progress</p>

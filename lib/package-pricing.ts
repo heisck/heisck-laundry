@@ -1,6 +1,7 @@
 import type { PackageType } from "@/lib/types";
 
 export const FIXED_PACKAGE_CHARGE_GHS = 2;
+export const PAYSTACK_FEE_RATE = 0.01;
 
 const PACKAGE_TYPE_DETAILS: Record<
   PackageType,
@@ -72,25 +73,29 @@ export function getSuggestedEtaDate(
 export function calculatePackagePricing(
   weightKg: number,
   packageType: PackageType,
-): {
+ ): {
   roundedWeightKg: number;
   ratePerKg: number;
   fixedChargeGhs: number;
+  subtotalPriceGhs: number;
+  paystackFeeGhs: number;
   totalPriceGhs: number;
 } {
   const roundedWeightKg = roundUpWeightToTenth(weightKg);
   const ratePerKg = getPackageTypeRate(packageType);
-  const totalPriceGhs =
+  const subtotalPriceGhs =
     roundedWeightKg === 0
       ? 0
-      : Number(
-          (roundedWeightKg * ratePerKg + FIXED_PACKAGE_CHARGE_GHS).toFixed(2),
-        );
+      : Number((roundedWeightKg * ratePerKg + FIXED_PACKAGE_CHARGE_GHS).toFixed(2));
+  const paystackFeeGhs = Number((subtotalPriceGhs * PAYSTACK_FEE_RATE).toFixed(2));
+  const totalPriceGhs = Number((subtotalPriceGhs + paystackFeeGhs).toFixed(2));
 
   return {
     roundedWeightKg,
     ratePerKg,
     fixedChargeGhs: FIXED_PACKAGE_CHARGE_GHS,
+    subtotalPriceGhs,
+    paystackFeeGhs,
     totalPriceGhs,
   };
 }

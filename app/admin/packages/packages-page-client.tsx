@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -8,7 +7,6 @@ import {
   calculatePackagePricing,
   getPackageTypeLabel,
   getPackageTypeOptionLabel,
-  getPackageTypeTurnaroundLabel,
   getSuggestedEtaDate,
 } from "@/lib/package-pricing";
 import {
@@ -61,7 +59,6 @@ interface CreatePackageForm {
 interface LastCreatedInfo {
   orderId: string;
   trackingUrl: string;
-  qrCodeDataUrl: string;
 }
 
 interface NotificationAttempt {
@@ -92,7 +89,6 @@ interface StatusDialogState {
 type BusyAction =
   | null
   | "refresh"
-  | "search"
   | "createPackage"
   | "updateStatus"
   | "retrySms";
@@ -237,16 +233,12 @@ export function PackagesPageClient({
   const [allPackages, setAllPackages] = useState<PackageRecord[]>(initialPackages);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<PackageStatus | "ALL">("ALL");
-  const [appliedSearch, setAppliedSearch] = useState("");
-  const [appliedStatusFilter, setAppliedStatusFilter] = useState<
-    PackageStatus | "ALL"
-  >("ALL");
+  const [sortDescending, setSortDescending] = useState(false);
   const [createForm, setCreateForm] = useState<CreatePackageForm>({
     ...initialPackageForm,
     etaAt: toLocalDatetimeValue(getSuggestedEtaDate("NORMAL_WASH_DRY")),
   });
   const [lastCreated, setLastCreated] = useState<LastCreatedInfo | null>(null);
-  const [qrFullscreenOpen, setQrFullscreenOpen] = useState(false);
   const [loading, setLoading] = useState(!initialLoadReady);
   const [busyAction, setBusyAction] = useState<BusyAction>(null);
   const [pendingStatusUpdate, setPendingStatusUpdate] =
@@ -277,12 +269,20 @@ export function PackagesPageClient({
   }, [currentWeek]);
 
   const visiblePackages = useMemo(() => {
-    return allPackages.filter((record) => {
-      const matchesStatus =
-        appliedStatusFilter === "ALL" || record.status === appliedStatusFilter;
-      return matchesStatus && matchesSearch(record, appliedSearch);
+    const filtered = allPackages.filter((record) => {
+      const matchesStatus = statusFilter === "ALL" || record.status === statusFilter;
+      return matchesStatus && matchesSearch(record, search.trim());
     });
-  }, [allPackages, appliedSearch, appliedStatusFilter]);
+
+    return filtered.sort((a, b) => {
+      const statusDelta = STATUS_ORDER[a.status] - STATUS_ORDER[b.status];
+      if (statusDelta !== 0) {
+        return sortDescending ? -statusDelta : statusDelta;
+      }
+      const createdDelta = new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+      return sortDescending ? -createdDelta : createdDelta;
+    });
+  }, [allPackages, search, statusFilter, sortDescending]);
 
   const displayedMetrics = useMemo(() => {
     const packageCount = visiblePackages.length;
@@ -448,7 +448,6 @@ export function PackagesPageClient({
       const payload = await parseApiResponse<{
         package: PackageRecord;
         trackingUrl: string;
-        qrCodeDataUrl: string;
         notifications: NotificationAttempt[];
       }>(response);
 
@@ -459,9 +458,7 @@ export function PackagesPageClient({
       setLastCreated({
         orderId: payload.package.order_id,
         trackingUrl: payload.trackingUrl,
-        qrCodeDataUrl: payload.qrCodeDataUrl,
       });
-      setQrFullscreenOpen(true);
       setAllPackages((prev) => [
         payload.package,
         ...prev.filter((item) => item.id !== payload.package.id),
@@ -695,24 +692,6 @@ export function PackagesPageClient({
     }
   }
 
-  async function handleFilterSubmit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setBusyAction("search");
-    try {
-      setAppliedSearch(search.trim());
-      setAppliedStatusFilter(statusFilter);
-      pushToast("info", "Filters applied");
-    } catch (error) {
-      pushToast(
-        "error",
-        "Failed to apply filters",
-        error instanceof Error ? error.message : "Unknown error",
-      );
-    } finally {
-      setBusyAction(null);
-    }
-  }
-
   async function handleRetrySms(packageId: string) {
     setBusyAction("retrySms");
     setPendingSmsRetryPackageId(packageId);
@@ -932,45 +911,6 @@ export function PackagesPageClient({
               className="input-control"
             />
 
-            <div className="surface-subtle sm:col-span-2 grid gap-3 p-4 md:grid-cols-2 xl:grid-cols-5">
-              <div className="metric-tile px-4 py-4">
-                <p className="label-kicker">
-                  Rounded Weight
-                </p>
-                <p className="mt-2 text-base font-semibold text-slate-950">
-                  {pricePreview.roundedWeightKg.toFixed(1)} kg
-                </p>
-              </div>
-              <div className="metric-tile px-4 py-4">
-                <p className="label-kicker">
-                  Package Rate
-                </p>
-                <p className="mt-2 text-base font-semibold text-slate-950">
-                  GHS {pricePreview.ratePerKg.toFixed(2)}/kg
-                </p>
-              </div>
-              <div className="metric-tile px-4 py-4">
-                <p className="label-kicker">
-                  Fixed Charge
-                </p>
-                <p className="mt-2 text-base font-semibold text-slate-950">
-                  GHS {pricePreview.fixedChargeGhs.toFixed(2)}
-                </p>
-              </div>
-              <div className="metric-tile px-4 py-4">
-                <p className="label-kicker">Total Price</p>
-                <p className="mt-2 text-base font-semibold text-slate-950">
-                  GHS {pricePreview.totalPriceGhs.toFixed(2)}
-                </p>
-              </div>
-              <div className="metric-tile px-4 py-4">
-                <p className="label-kicker">Turnaround</p>
-                <p className="mt-2 text-base font-semibold text-slate-950">
-                  {getPackageTypeTurnaroundLabel(createForm.packageType)}
-                </p>
-              </div>
-            </div>
-
             <div className="sm:col-span-2 flex flex-wrap gap-2">
               <button
                 type="submit"
@@ -1019,23 +959,6 @@ export function PackagesPageClient({
                     {lastCreated.trackingUrl}
                   </Link>
                 </div>
-                <div className="metric-tile p-4">
-                  <Image
-                    src={lastCreated.qrCodeDataUrl}
-                    alt="Package tracking QR code"
-                    width={210}
-                    height={210}
-                    unoptimized
-                    className="mx-auto h-52 w-52 rounded-xl border border-slate-300 bg-white p-2"
-                  />
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setQrFullscreenOpen(true)}
-                  className="btn btn-primary w-full"
-                >
-                  View QR Fullscreen
-                </button>
               </div>
             ) : (
               <p className="metric-tile p-4 text-sm leading-6 text-slate-500">
@@ -1055,7 +978,7 @@ export function PackagesPageClient({
                 Filter locally for faster lookup and cleaner status management.
               </p>
             </div>
-            <form className="flex flex-col gap-2 sm:flex-row" onSubmit={handleFilterSubmit}>
+            <div className="flex flex-col gap-2 sm:flex-row">
               <input
                 type="text"
                 value={search}
@@ -1078,13 +1001,13 @@ export function PackagesPageClient({
                 ))}
               </select>
               <button
-                type="submit"
-                disabled={busyAction === "search"}
+                type="button"
+                onClick={() => setSortDescending((prev) => !prev)}
                 className="btn btn-secondary"
               >
-                {busyAction === "search" ? "Applying..." : "Apply"}
+                Sort {sortDescending ? "↓" : "↑"}
               </button>
-            </form>
+            </div>
           </div>
         </div>
 
@@ -1138,7 +1061,7 @@ export function PackagesPageClient({
           ))}
           {visiblePackages.length === 0 ? (
             <p className="metric-tile p-5 text-center text-sm leading-6 text-slate-500">
-              No packages match the current filters.
+              No packages match the current live filters.
             </p>
           ) : null}
         </div>
@@ -1150,6 +1073,8 @@ export function PackagesPageClient({
                 <th className="font-semibold">Order</th>
                 <th className="font-semibold">Customer</th>
                 <th className="font-semibold">Package</th>
+                <th className="font-semibold">Phone</th>
+                <th className="font-semibold">Clothes</th>
                 <th className="font-semibold">Room</th>
                 <th className="font-semibold">Weight</th>
                 <th className="font-semibold">Price</th>
@@ -1164,6 +1089,8 @@ export function PackagesPageClient({
                   <td className="font-semibold text-slate-900">{pkg.order_id}</td>
                   <td>{pkg.customer_name}</td>
                   <td>{getPackageTypeLabel(pkg.package_type)}</td>
+                  <td>{pkg.primary_phone}</td>
+                  <td>{pkg.clothes_count}</td>
                   <td>{pkg.room_number}</td>
                   <td>{pkg.total_weight_kg.toFixed(2)} kg</td>
                   <td>GHS {pkg.total_price_ghs.toFixed(2)}</td>
@@ -1187,8 +1114,8 @@ export function PackagesPageClient({
               ))}
               {visiblePackages.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="py-10 text-center text-slate-500">
-                    No packages match the current filters.
+                  <td colSpan={11} className="py-10 text-center text-slate-500">
+                    No packages match the current live filters.
                   </td>
                 </tr>
               ) : null}
@@ -1321,51 +1248,6 @@ export function PackagesPageClient({
                 >
                   {busyAction === "updateStatus" ? "Saving..." : "Confirm Status Update"}
                 </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      {qrFullscreenOpen && lastCreated ? (
-        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/72 px-4 py-6 backdrop-blur-sm">
-          <div className="glass-card max-h-full w-full max-w-[860px] overflow-auto border border-slate-300 bg-white p-6">
-            <div className="mb-4 flex items-start justify-between gap-3 border-b border-slate-200 pb-4">
-              <div>
-                <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Tracking QR</p>
-                <h3 className="text-xl font-semibold text-slate-900">{lastCreated.orderId}</h3>
-                <p className="mt-1 text-xs text-slate-600">
-                  Scan to open the private customer tracking page.
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setQrFullscreenOpen(false)}
-                className="btn btn-secondary"
-              >
-                Close
-              </button>
-            </div>
-            <div className="grid gap-4 md:grid-cols-[1fr_1.1fr] md:items-center">
-              <div className="rounded-2xl border border-slate-200 bg-white p-3">
-                <Image
-                  src={lastCreated.qrCodeDataUrl}
-                  alt="Fullscreen package tracking QR code"
-                  width={540}
-                  height={540}
-                  unoptimized
-                  className="mx-auto h-auto w-full max-w-[520px]"
-                />
-              </div>
-              <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
-                <p className="text-xs uppercase tracking-wider text-slate-500">Tracking URL</p>
-                <Link
-                  href={lastCreated.trackingUrl}
-                  target="_blank"
-                  className="mt-2 block break-all text-sm text-blue-700 underline"
-                >
-                  {lastCreated.trackingUrl}
-                </Link>
               </div>
             </div>
           </div>

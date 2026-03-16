@@ -44,6 +44,8 @@ cp .env.example .env.local
 - `ARKESEL_API_KEY`
 - `ARKESEL_SENDER_ID` (max 11 characters; must match your approved sender ID)
 - `CRON_SECRET` (recommended for cron endpoint protection)
+- `PAYSTACK_SECRET_KEY`
+- `PAYSTACK_DEFAULT_CUSTOMER_EMAIL` (fallback email used to initialize payments)
 
 4. Apply database schema using:
 `supabase/migrations/20260310_initial_schema.sql`
