@@ -2,6 +2,7 @@ import Image from "next/image";
 
 import { getPackageTypeLabel } from "@/lib/package-pricing";
 import { getDb, withDbConnectionRetry } from "@/lib/db";
+import { buildCustomerPaymentStatusPath } from "@/lib/services/payments";
 import { getStatusFlow, getStatusLabel } from "@/lib/status";
 import { formatAccraDateTime } from "@/lib/time";
 import { verifyTrackingToken } from "@/lib/tracking-token";
@@ -32,6 +33,7 @@ interface TrackPackageRow {
   picked_up_at: string | null;
   payment_status: PaymentStatus;
   payment_source: PaymentSource;
+  payment_reference: string | null;
 }
 
 function statusPill(status: PackageStatus): string {
@@ -200,7 +202,8 @@ export default async function TrackPackagePage({ params }: Params) {
         expires_at,
         picked_up_at,
         payment_status,
-        payment_source
+        payment_source,
+        payment_reference
       from packages
       where id = ${tokenPayload.packageId}
         and tracking_token_id = ${tokenPayload.tokenId}
@@ -240,7 +243,19 @@ export default async function TrackPackagePage({ params }: Params) {
                 {getPaymentLabel(record.payment_status, record.payment_source)}
               </span>
             </span>
-            {record.payment_status !== "PAID" ? (
+            {record.payment_status === "PENDING" && record.payment_reference ? (
+              <a
+                href={buildCustomerPaymentStatusPath({
+                  token,
+                  reference: record.payment_reference,
+                })}
+                className="btn btn-secondary min-h-[2.45rem] px-3 text-[0.72rem] sm:min-h-[2.9rem] sm:px-4 sm:text-[0.82rem]"
+              >
+                <span className="sm:hidden">Check Payment</span>
+                <span className="hidden sm:inline">Check payment status</span>
+              </a>
+            ) : null}
+            {record.payment_status === "UNPAID" ? (
               <form action={`/api/track/${token}/pay`} method="post" className="shrink-0">
                 <button
                   type="submit"

@@ -48,6 +48,18 @@ export type PaymentStatus = (typeof PAYMENT_STATUSES)[number];
 export const PAYMENT_SOURCES = ["NONE", "PAYSTACK", "MANUAL"] as const;
 export type PaymentSource = (typeof PAYMENT_SOURCES)[number];
 
+export const PACKAGE_PAYMENT_ATTEMPT_STATUSES = [
+  "PENDING",
+  "SUCCESS",
+  "FAILED",
+  "CANCELLED",
+  "VERIFICATION_FAILED",
+  "AMOUNT_MISMATCH",
+] as const;
+
+export type PackagePaymentAttemptStatus =
+  (typeof PACKAGE_PAYMENT_ATTEMPT_STATUSES)[number];
+
 export type NotificationTriggerType = "CREATED" | "STATUS_CHANGED";
 
 export interface ProcessingWeek {
@@ -96,6 +108,30 @@ export interface PackageRecord {
   week_status: ProcessingWeekStatus;
   last_delivery_state: string | null;
   last_notification_at: string | null;
+}
+
+export interface PackagePaymentAttemptRecord {
+  id: string;
+  package_id: string;
+  tracking_token_id: string;
+  order_id: string;
+  paystack_reference: string;
+  paystack_access_code: string | null;
+  paystack_authorization_url: string | null;
+  status: PackagePaymentAttemptStatus;
+  amount_expected_kobo: number;
+  amount_paid_kobo: number | null;
+  currency: string;
+  paystack_status: string | null;
+  verification_message: string | null;
+  failure_reason: string | null;
+  customer_email: string;
+  metadata: Record<string, unknown>;
+  paystack_response: Record<string, unknown> | null;
+  paid_at: string | null;
+  verified_at: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface NotificationLogRecord {

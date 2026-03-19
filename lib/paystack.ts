@@ -34,7 +34,13 @@ export async function initializePaystackPayment(input: {
   callbackUrl: string;
   metadata?: Record<string, unknown>;
 }) {
-  return paystackFetch<{ data: { authorization_url: string } }>("/transaction/initialize", {
+  return paystackFetch<{
+    data: {
+      authorization_url: string;
+      access_code: string;
+      reference: string;
+    };
+  }>("/transaction/initialize", {
     method: "POST",
     body: JSON.stringify({
       email: input.email,
@@ -47,5 +53,16 @@ export async function initializePaystackPayment(input: {
 }
 
 export async function verifyPaystackPayment(reference: string) {
-  return paystackFetch<{ data: { status: string; reference: string; paid_at: string | null } }>(`/transaction/verify/${reference}`);
+  return paystackFetch<{
+    message?: string;
+    data: {
+      status: string;
+      reference: string;
+      amount: number | null;
+      currency: string | null;
+      paid_at: string | null;
+      gateway_response?: string | null;
+      metadata?: Record<string, unknown> | null;
+    };
+  }>(`/transaction/verify/${reference}`);
 }
