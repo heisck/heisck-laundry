@@ -34,6 +34,7 @@ export async function fetchWithTimeout(
   try {
     return await fetch(input, {
       ...init,
+      credentials: init?.credentials ?? "same-origin",
       signal: controller.signal,
     });
   } catch (error) {
