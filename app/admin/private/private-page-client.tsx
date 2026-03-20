@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { buildDashboardMetrics } from "@/lib/dashboard-metrics";
+import { PRIVATE_ACCESS_HEADER_NAME } from "@/lib/private-access-constants";
 import { formatAccraDateTime } from "@/lib/time";
 import type {
   ExpressBusinessSummary,
@@ -31,6 +32,7 @@ interface PrivatePageClientProps {
   initialExpressBusinessSummary: ExpressBusinessSummary | null;
   initialLoadReady: boolean;
   initialLoadError: string | null;
+  initialPrivateAccessToken: string | null;
 }
 
 const EMPTY_EXPRESS_BUSINESS_SUMMARY: ExpressBusinessSummary = {
@@ -118,6 +120,7 @@ export function PrivatePageClient({
   initialExpressBusinessSummary,
   initialLoadReady,
   initialLoadError,
+  initialPrivateAccessToken,
 }: PrivatePageClientProps) {
   const { toasts, dismissToast, pushToast } = useToasts();
 
@@ -138,6 +141,9 @@ export function PrivatePageClient({
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [updatingPassword, setUpdatingPassword] = useState(false);
+  const [privateAccessToken, setPrivateAccessToken] = useState<string | null>(
+    initialPrivateAccessToken,
+  );
   const initRef = useRef(false);
 
   const closedWeeks = useMemo(
@@ -160,9 +166,23 @@ export function PrivatePageClient({
     return `${remainingHours}h ${remainingMinutes}m remaining`;
   }, [currentWeek]);
 
+  function buildPrivateAccessHeaders(
+    headers?: HeadersInit,
+  ): HeadersInit | undefined {
+    if (!privateAccessToken) {
+      return headers;
+    }
+
+    return {
+      ...(headers ?? {}),
+      [PRIVATE_ACCESS_HEADER_NAME]: privateAccessToken,
+    };
+  }
+
   async function loadDashboard() {
     const response = await fetchWithTimeout("/api/admin/private-dashboard", {
       cache: "no-store",
+      headers: buildPrivateAccessHeaders(),
     });
     const payload = await parseApiResponse<DashboardPayload>(response);
     setCurrentWeek(payload.currentWeek);
@@ -200,7 +220,9 @@ export function PrivatePageClient({
     try {
       const response = await fetchWithTimeout("/api/admin/weeks/start", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: buildPrivateAccessHeaders({
+          "Content-Type": "application/json",
+        }),
         body: JSON.stringify({ label: startWeekLabel.trim() || undefined }),
       });
       await parseApiResponse<{ week: ProcessingWeek }>(response);
@@ -228,6 +250,7 @@ export function PrivatePageClient({
     try {
       const response = await fetchWithTimeout(`/api/admin/weeks/${currentWeek.id}/close`, {
         method: "POST",
+        headers: buildPrivateAccessHeaders(),
       });
       await parseApiResponse(response);
       pushToast("success", "Week closed", "Next week was opened automatically.");
@@ -269,10 +292,16 @@ export function PrivatePageClient({
     try {
       const response = await fetchWithTimeout("/api/admin/private-access/password", {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers: buildPrivateAccessHeaders({
+          "Content-Type": "application/json",
+        }),
         body: JSON.stringify({ password: newPassword.trim() }),
       });
-      await parseApiResponse<{ success: boolean }>(response);
+      const payload = await parseApiResponse<{
+        privateAccessToken: string;
+        success: boolean;
+      }>(response);
+      setPrivateAccessToken(payload.privateAccessToken);
       setNewPassword("");
       setConfirmPassword("");
       pushToast(

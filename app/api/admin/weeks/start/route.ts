@@ -5,7 +5,8 @@ import { z } from "zod";
 import { requireApiUser } from "@/lib/auth";
 import { handleApiError } from "@/lib/api";
 import {
-  isPrivateAccessCookieValueValid,
+  isPrivateAccessAuthorized,
+  PRIVATE_ACCESS_HEADER_NAME,
   PRIVATE_ACCESS_COOKIE_NAME,
 } from "@/lib/private-access";
 import { invalidateAdminPackagesCache } from "@/lib/services/admin-packages";
@@ -22,10 +23,11 @@ export async function POST(request: Request) {
   }
 
   const cookieStore = await cookies();
-  const hasPrivateAccess = await isPrivateAccessCookieValueValid(
-    cookieStore.get(PRIVATE_ACCESS_COOKIE_NAME)?.value,
-    auth.user.id,
-  );
+  const hasPrivateAccess = await isPrivateAccessAuthorized({
+    cookieValue: cookieStore.get(PRIVATE_ACCESS_COOKIE_NAME)?.value,
+    headerValue: request.headers.get(PRIVATE_ACCESS_HEADER_NAME),
+    userId: auth.user.id,
+  });
 
   if (!hasPrivateAccess) {
     return NextResponse.json(

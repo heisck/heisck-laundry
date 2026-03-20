@@ -7,9 +7,17 @@ import {
 
 import { AppError } from "@/lib/app-error";
 import { getDb, withDbConnectionRetry } from "@/lib/db";
+import {
+  PRIVATE_ACCESS_COOKIE_NAME,
+  PRIVATE_ACCESS_COOKIE_PATH,
+  PRIVATE_ACCESS_HEADER_NAME,
+} from "@/lib/private-access-constants";
 
-export const PRIVATE_ACCESS_COOKIE_NAME = "heisck_private_access";
-export const PRIVATE_ACCESS_COOKIE_PATH = "/";
+export {
+  PRIVATE_ACCESS_COOKIE_NAME,
+  PRIVATE_ACCESS_COOKIE_PATH,
+  PRIVATE_ACCESS_HEADER_NAME,
+};
 
 interface PrivateAccessSettingsCacheEntry {
   cachedAt: string;
@@ -194,6 +202,22 @@ export async function isPrivateAccessCookieValueValid(
   }
 
   return timingSafeEqual(expected, provided);
+}
+
+export async function isPrivateAccessAuthorized(options: {
+  cookieValue: string | undefined;
+  headerValue: string | null;
+  userId: string;
+}): Promise<boolean> {
+  if (await isPrivateAccessCookieValueValid(options.cookieValue, options.userId)) {
+    return true;
+  }
+
+  if (!options.headerValue) {
+    return false;
+  }
+
+  return isPrivateAccessCookieValueValid(options.headerValue, options.userId);
 }
 
 export async function getPrivateAccessCookieValue(userId: string): Promise<string> {

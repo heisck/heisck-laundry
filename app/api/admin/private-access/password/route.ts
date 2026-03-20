@@ -6,7 +6,8 @@ import { handleApiError } from "@/lib/api";
 import { requireApiUser } from "@/lib/auth";
 import {
   getPrivateAccessCookieOptions,
-  isPrivateAccessCookieValueValid,
+  isPrivateAccessAuthorized,
+  PRIVATE_ACCESS_HEADER_NAME,
   PRIVATE_ACCESS_COOKIE_NAME,
   updatePrivateAccessPassword,
 } from "@/lib/private-access";
@@ -23,10 +24,11 @@ export async function PATCH(request: Request) {
 
   try {
     const cookieStore = await cookies();
-    const hasPrivateAccess = await isPrivateAccessCookieValueValid(
-      cookieStore.get(PRIVATE_ACCESS_COOKIE_NAME)?.value,
-      auth.user.id,
-    );
+    const hasPrivateAccess = await isPrivateAccessAuthorized({
+      cookieValue: cookieStore.get(PRIVATE_ACCESS_COOKIE_NAME)?.value,
+      headerValue: request.headers.get(PRIVATE_ACCESS_HEADER_NAME),
+      userId: auth.user.id,
+    });
 
     if (!hasPrivateAccess) {
       return NextResponse.json(
@@ -49,7 +51,10 @@ export async function PATCH(request: Request) {
       auth.user.id,
     );
 
-    const response = NextResponse.json({ success: true });
+    const response = NextResponse.json({
+      success: true,
+      privateAccessToken: cookieValue,
+    });
     response.cookies.set(
       PRIVATE_ACCESS_COOKIE_NAME,
       cookieValue,

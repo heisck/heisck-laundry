@@ -19,8 +19,10 @@ import { PrivatePageClient } from "./private-page-client";
 export default async function AdminPrivatePage() {
   const user = await requirePageUser();
   const cookieStore = await cookies();
+  const privateAccessToken =
+    cookieStore.get(PRIVATE_ACCESS_COOKIE_NAME)?.value ?? null;
   const hasAccess = await isPrivateAccessCookieValueValid(
-    cookieStore.get(PRIVATE_ACCESS_COOKIE_NAME)?.value,
+    privateAccessToken ?? undefined,
     user.id,
   );
 
@@ -58,6 +60,7 @@ export default async function AdminPrivatePage() {
       initialExpressBusinessSummary={initialExpressBusinessSummary}
       initialLoadReady={initialLoadReady}
       initialLoadError={initialLoadError}
+      initialPrivateAccessToken={privateAccessToken}
     />
   );
 }
