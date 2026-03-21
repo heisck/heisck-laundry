@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { handleApiError } from "@/lib/api";
+import { invalidateAdminPackagesCache } from "@/lib/services/admin-packages";
 import { autoCloseOverdueWeeks, SYSTEM_ACTOR_ID } from "@/lib/services/weeks";
 
 function isAuthorized(request: Request): boolean {
@@ -25,6 +26,9 @@ export async function GET(request: Request) {
 
   try {
     const closed = await autoCloseOverdueWeeks(SYSTEM_ACTOR_ID);
+    if (closed.length > 0) {
+      invalidateAdminPackagesCache();
+    }
     return NextResponse.json({
       closedCount: closed.length,
       closed,

@@ -65,8 +65,8 @@ export function PrivateAccessGate({ userEmail }: { userEmail: string }) {
               Unlock protected totals
             </h3>
             <p className="mt-2 max-w-xl text-sm leading-6 text-slate-600">
-              This page holds the total weight, total amount made, partner amount made,
-              and total express kg. Enter the private password to continue.
+              This page holds the current-week private totals and the weekly history.
+              Enter the private password to continue.
             </p>
           </div>
 

@@ -356,25 +356,25 @@ export function PrivatePageClient({
 
       <section className="mb-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <article className="metric-tile px-5 py-5">
-          <p className="label-kicker">Total Weight</p>
+          <p className="label-kicker">This Week Weight</p>
           <p className="font-display mt-3 text-3xl font-semibold text-slate-950">
             {summary.totalWeight.toFixed(2)} kg
           </p>
         </article>
         <article className="metric-tile px-5 py-5">
-          <p className="label-kicker">Total Amount Made</p>
+          <p className="label-kicker">This Week Amount Made</p>
           <p className="font-display mt-3 text-3xl font-semibold text-slate-950">
             GHS {summary.totalRevenue.toFixed(2)}
           </p>
         </article>
         <article className="metric-tile px-5 py-5">
-          <p className="label-kicker">Partner Amount Made</p>
+          <p className="label-kicker">This Week Partner Amount</p>
           <p className="font-display mt-3 text-3xl font-semibold text-slate-950">
             GHS {expressBusinessSummary.partner_express_share_ghs.toFixed(2)}
           </p>
         </article>
         <article className="metric-tile px-5 py-5">
-          <p className="label-kicker">Total Express Kg</p>
+          <p className="label-kicker">This Week Express Kg</p>
           <p className="font-display mt-3 text-3xl font-semibold text-slate-950">
             {expressBusinessSummary.express_total_weight_kg.toFixed(2)} kg
           </p>
@@ -522,9 +522,11 @@ export function PrivatePageClient({
                   <p className="mt-2 text-sm leading-6 text-slate-500">
                     {formatAccraDateTime(week.start_at)} - {formatAccraDateTime(week.end_at)}
                   </p>
-                  <p className="mt-1 text-sm leading-6 text-slate-500">
-                    {week.package_count ?? 0} packages
-                  </p>
+                  <div className="mt-2 flex flex-wrap gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+                    <span>{week.package_count ?? 0} packages</span>
+                    <span>{(week.total_weight_kg ?? 0).toFixed(2)} kg</span>
+                    <span>GHS {(week.total_price_ghs ?? 0).toFixed(2)}</span>
+                  </div>
                 </div>
                 <div className="flex gap-2">
                   <Link

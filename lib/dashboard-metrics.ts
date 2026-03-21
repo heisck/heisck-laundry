@@ -10,32 +10,25 @@ export interface DashboardMetrics {
   activeRevenue: number;
 }
 
+export function getActivePackages(packages: PackageRecord[]): PackageRecord[] {
+  return packages.filter((item) => item.week_status === "ACTIVE");
+}
+
 export function buildDashboardMetrics(
   weeks: ProcessingWeekWithReport[],
   packages: PackageRecord[],
 ): DashboardMetrics {
   const closedWeeks = weeks.filter((week) => week.status === "CLOSED");
-  const closedPackageCount = closedWeeks.reduce(
-    (sum, week) => sum + (week.package_count ?? 0),
-    0,
-  );
-  const closedWeight = closedWeeks.reduce(
-    (sum, week) => sum + (week.total_weight_kg ?? 0),
-    0,
-  );
-  const closedRevenue = closedWeeks.reduce(
-    (sum, week) => sum + (week.total_price_ghs ?? 0),
-    0,
-  );
-  const activePackageCount = packages.length;
-  const activeWeight = packages.reduce((sum, item) => sum + item.total_weight_kg, 0);
-  const activeRevenue = packages.reduce((sum, item) => sum + item.total_price_ghs, 0);
+  const activePackages = getActivePackages(packages);
+  const activePackageCount = activePackages.length;
+  const activeWeight = activePackages.reduce((sum, item) => sum + item.total_weight_kg, 0);
+  const activeRevenue = activePackages.reduce((sum, item) => sum + item.total_price_ghs, 0);
 
   return {
     closedWeekCount: closedWeeks.length,
-    totalPackages: closedPackageCount + activePackageCount,
-    totalWeight: closedWeight + activeWeight,
-    totalRevenue: closedRevenue + activeRevenue,
+    totalPackages: activePackageCount,
+    totalWeight: activeWeight,
+    totalRevenue: activeRevenue,
     activePackageCount,
     activeWeight,
     activeRevenue,

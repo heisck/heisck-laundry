@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { requireApiUser } from "@/lib/auth";
 import { handleApiError } from "@/lib/api";
+import { getActivePackages } from "@/lib/dashboard-metrics";
 import { listPackages } from "@/lib/services/packages";
 import {
   getCurrentProcessingWeek,
@@ -21,6 +22,7 @@ export async function GET() {
       listProcessingWeeks(),
       listPackages(),
     ]);
+    const activePackages = getActivePackages(packages);
     const operationalSummary = await getWeekOperationalSummary(currentWeek?.id ?? null);
 
     return NextResponse.json({
@@ -30,7 +32,7 @@ export async function GET() {
         total_weight_kg: null,
         total_price_ghs: null,
       })),
-      activePackageCount: packages.length,
+      activePackageCount: activePackages.length,
       expressPackageCount: operationalSummary.expressBusinessSummary.express_package_count,
       packageTypeSummary: operationalSummary.packageTypeSummary,
       workerPayoutSummaries: operationalSummary.workerPayoutSummaries,

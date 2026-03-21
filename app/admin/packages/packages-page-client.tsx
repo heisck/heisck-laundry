@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { getActivePackages } from "@/lib/dashboard-metrics";
 import {
   calculatePackagePricing,
   getPackageTypeOptionLabel,
@@ -26,6 +27,7 @@ import {
   type PackageStatus,
   type PackageType,
   type ProcessingWeek,
+  type ProcessingWeekWithReport,
 } from "@/lib/types";
 
 import {
@@ -40,6 +42,7 @@ import { useWorkspaceShell } from "../_components/workspace-shell-frame";
 interface PackagesPageClientProps {
   initialCurrentWeek: ProcessingWeek | null;
   initialPackages: PackageRecord[];
+  initialWeeks?: ProcessingWeekWithReport[];
   initialLoadReady: boolean;
   initialLoadError: string | null;
 }
@@ -72,6 +75,7 @@ interface NotificationAttempt {
 
 interface PackagesBootstrapPayload {
   week: ProcessingWeek | null;
+  weeks: ProcessingWeekWithReport[];
   packages: PackageRecord[];
   stale: boolean;
   cachedAt: string | null;
@@ -110,6 +114,16 @@ const STATUS_ORDER: Record<PackageStatus, number> = {
 const PAYMENT_STATUS_OPTIONS = ["ALL", "UNPAID", "PENDING", "PAID"] as const;
 type PaymentStatusFilter = (typeof PAYMENT_STATUS_OPTIONS)[number];
 
+interface PackageWeekSection {
+  weekId: string;
+  week: ProcessingWeekWithReport | null;
+  status: ProcessingWeek["status"];
+  packages: PackageRecord[];
+  packageCount: number;
+  totalWeight: number;
+  totalRevenue: number;
+}
+
 const initialPackageForm: CreatePackageForm = {
   customerName: "",
   roomNumber: "",
@@ -121,6 +135,43 @@ const initialPackageForm: CreatePackageForm = {
   secondaryPhone: "",
   etaAt: "",
 };
+
+function sumPackageMetrics(packages: PackageRecord[]) {
+  return packages.reduce(
+    (summary, item) => ({
+      totalWeight: summary.totalWeight + item.total_weight_kg,
+      totalRevenue: summary.totalRevenue + item.total_price_ghs,
+    }),
+    { totalWeight: 0, totalRevenue: 0 },
+  );
+}
+
+function weekStatusPill(status: ProcessingWeek["status"]): string {
+  if (status === "ACTIVE") {
+    return "bg-emerald-100 text-emerald-700";
+  }
+
+  return "bg-slate-100 text-slate-700";
+}
+
+function getWeekRangeLabel(week: Pick<ProcessingWeek, "start_at" | "end_at">): string {
+  return `${formatAccraDateTime(week.start_at)} - ${formatAccraDateTime(week.end_at)}`;
+}
+
+function sortPackagesForDisplay(
+  packages: PackageRecord[],
+  sortDescending: boolean,
+): PackageRecord[] {
+  return [...packages].sort((a, b) => {
+    const statusDelta = STATUS_ORDER[a.status] - STATUS_ORDER[b.status];
+    if (statusDelta !== 0) {
+      return sortDescending ? -statusDelta : statusDelta;
+    }
+
+    const createdDelta = new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+    return sortDescending ? -createdDelta : createdDelta;
+  });
+}
 
 function matchesSearch(record: PackageRecord, query: string): boolean {
   if (!query) {
@@ -208,7 +259,13 @@ function readLocalBootstrapCache(): PackagesBootstrapPayload | null {
       return null;
     }
 
-    return parsed;
+    return {
+      week: parsed.week,
+      weeks: Array.isArray(parsed.weeks) ? parsed.weeks : [],
+      packages: parsed.packages,
+      stale: Boolean(parsed.stale),
+      cachedAt: parsed.cachedAt ?? null,
+    };
   } catch {
     return null;
   }
@@ -249,6 +306,7 @@ function SkeletonPackagesPage() {
 export function PackagesPageClient({
   initialCurrentWeek,
   initialPackages,
+  initialWeeks = [],
   initialLoadReady,
   initialLoadError,
 }: PackagesPageClientProps) {
@@ -257,12 +315,17 @@ export function PackagesPageClient({
   const [currentWeek, setCurrentWeek] = useState<ProcessingWeek | null>(
     initialCurrentWeek,
   );
+  const [weeks, setWeeks] = useState<ProcessingWeekWithReport[]>(initialWeeks);
   const [allPackages, setAllPackages] = useState<PackageRecord[]>(initialPackages);
-  const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<PackageStatus | "ALL">("ALL");
-  const [paymentFilter, setPaymentFilter] =
-    useState<PaymentStatusFilter>("ALL");
-  const [sortDescending, setSortDescending] = useState(false);
+  const [collapsedWeeks, setCollapsedWeeks] = useState<Record<string, boolean>>({});
+  const [weekSearchTerms, setWeekSearchTerms] = useState<Record<string, string>>({});
+  const [weekSortDescending, setWeekSortDescending] = useState<Record<string, boolean>>({});
+  const [weekStatusFilters, setWeekStatusFilters] = useState<
+    Record<string, PackageStatus | "ALL">
+  >({});
+  const [weekPaymentFilters, setWeekPaymentFilters] = useState<
+    Record<string, PaymentStatusFilter>
+  >({});
   const [createForm, setCreateForm] = useState<CreatePackageForm>({
     ...initialPackageForm,
     etaAt: toLocalDatetimeValue(getSuggestedEtaDate("NORMAL_WASH_DRY")),
@@ -277,6 +340,7 @@ export function PackagesPageClient({
   const initRef = useRef(false);
 
   const isBusy = busyAction !== null;
+  const activePackages = useMemo(() => getActivePackages(allPackages), [allPackages]);
 
   const currentWeekRemaining = useMemo(() => {
     if (!currentWeek) {
@@ -315,33 +379,84 @@ export function PackagesPageClient({
     }).format(new Date(currentWeek.start_at));
   }, [currentWeek]);
 
-  const visiblePackages = useMemo(() => {
-    const filtered = allPackages.filter((record) => {
-      const matchesStatus = statusFilter === "ALL" || record.status === statusFilter;
-      const matchesPayment =
-        paymentFilter === "ALL" || record.payment_status === paymentFilter;
-      return matchesStatus && matchesPayment && matchesSearch(record, search.trim());
-    });
+  const visibleWeekSections = useMemo(() => {
+    const packagesByWeek = new Map<string, PackageRecord[]>();
 
-    return filtered.sort((a, b) => {
-      const statusDelta = STATUS_ORDER[a.status] - STATUS_ORDER[b.status];
-      if (statusDelta !== 0) {
-        return sortDescending ? -statusDelta : statusDelta;
+    for (const pkg of allPackages) {
+      const entries = packagesByWeek.get(pkg.week_id);
+      if (entries) {
+        entries.push(pkg);
+      } else {
+        packagesByWeek.set(pkg.week_id, [pkg]);
       }
-      const createdDelta = new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
-      return sortDescending ? -createdDelta : createdDelta;
-    });
-  }, [allPackages, paymentFilter, search, sortDescending, statusFilter]);
+    }
+
+    const sections: PackageWeekSection[] = [];
+
+    for (const week of weeks) {
+      const weekPackages = packagesByWeek.get(week.id) ?? [];
+      const shouldIncludeWeek =
+        weekPackages.length > 0 || week.status === "ACTIVE" || (week.package_count ?? 0) > 0;
+
+      if (!shouldIncludeWeek) {
+        continue;
+      }
+
+      const metrics = sumPackageMetrics(weekPackages);
+      sections.push({
+        weekId: week.id,
+        week,
+        status: week.status,
+        packages: weekPackages,
+        packageCount: week.package_count ?? weekPackages.length,
+        totalWeight: week.total_weight_kg ?? metrics.totalWeight,
+        totalRevenue: week.total_price_ghs ?? metrics.totalRevenue,
+      });
+      packagesByWeek.delete(week.id);
+    }
+
+    const fallbackSections = Array.from(packagesByWeek.entries())
+      .map(([weekId, weekPackages]) => {
+        const metrics = sumPackageMetrics(weekPackages);
+        const latestCreatedAt = weekPackages.reduce((latest, item) => {
+          const createdAt = new Date(item.created_at).getTime();
+          return createdAt > latest ? createdAt : latest;
+        }, 0);
+
+        return {
+          weekId,
+          week: null,
+          status: weekPackages[0]?.week_status ?? "CLOSED",
+          packages: weekPackages,
+          packageCount: weekPackages.length,
+          totalWeight: metrics.totalWeight,
+          totalRevenue: metrics.totalRevenue,
+          latestCreatedAt,
+        };
+      })
+      .sort((a, b) => b.latestCreatedAt - a.latestCreatedAt)
+      .map((section) => ({
+        weekId: section.weekId,
+        week: section.week,
+        status: section.status,
+        packages: section.packages,
+        packageCount: section.packageCount,
+        totalWeight: section.totalWeight,
+        totalRevenue: section.totalRevenue,
+      }));
+
+    return [...sections, ...fallbackSections];
+  }, [allPackages, weeks]);
 
   const displayedMetrics = useMemo(() => {
-    const readyCount = visiblePackages.filter(
+    const readyCount = activePackages.filter(
       (item) => item.status === "READY_FOR_PICKUP",
     ).length;
 
     return {
       readyCount,
     };
-  }, [visiblePackages]);
+  }, [activePackages]);
 
   const pricePreview = useMemo(() => {
     const weightKg = Number(createForm.totalWeightKg);
@@ -349,7 +464,7 @@ export function PackagesPageClient({
   }, [createForm.packageType, createForm.totalWeightKg]);
 
   useWorkspaceShell({
-    packageCount: allPackages.length,
+    packageCount: activePackages.length,
     refreshing: busyAction === "refresh",
     onRefresh: () => void refreshAll(),
   });
@@ -368,6 +483,7 @@ export function PackagesPageClient({
     );
     const payload = await parseApiResponse<PackagesBootstrapPayload>(response);
     setCurrentWeek(payload.week);
+    setWeeks(payload.weeks);
     setAllPackages(payload.packages);
     writeLocalBootstrapCache(payload);
 
@@ -397,6 +513,7 @@ export function PackagesPageClient({
       const cached = readLocalBootstrapCache();
       if (cached) {
         setCurrentWeek(cached.week);
+        setWeeks(cached.weeks);
         setAllPackages(cached.packages);
         pushToast(
           "warning",
@@ -433,6 +550,7 @@ export function PackagesPageClient({
       const cached = readLocalBootstrapCache();
       if (cached) {
         setCurrentWeek(cached.week);
+        setWeeks(cached.weeks);
         setAllPackages(cached.packages);
         setLoading(false);
         pushToast(
@@ -741,6 +859,105 @@ export function PackagesPageClient({
             {pendingSmsRetryPackageId === pkg.id ? "Retrying..." : "Retry SMS"}
           </button>
         ) : null}
+      </div>
+    );
+  }
+
+  function renderPackageCard(pkg: PackageRecord) {
+    return (
+      <article key={pkg.id} className="metric-tile p-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0">
+            <p className="font-display text-xl font-semibold text-slate-950">
+              {pkg.order_id}
+            </p>
+            <p className="mt-1 break-words text-sm leading-5 text-slate-600">
+              {pkg.customer_name} • Room {pkg.room_number}
+            </p>
+          </div>
+          <div className="grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-2 sm:flex sm:w-auto sm:flex-wrap sm:justify-end">
+            {renderPaymentControls(pkg, true)}
+            {renderStatusControl(pkg, true)}
+          </div>
+        </div>
+
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          <div className="surface-subtle px-4 py-3">
+            <p className="label-kicker">Package</p>
+            <p className="mt-2 text-sm font-semibold text-slate-950">
+              {getCompactPackageTypeLabel(pkg.package_type)}
+            </p>
+          </div>
+          <div className="surface-subtle px-4 py-3">
+            <p className="label-kicker">Phone</p>
+            <p className="mt-2 text-sm font-semibold text-slate-950">
+              {pkg.primary_phone}
+            </p>
+          </div>
+          <div className="surface-subtle px-4 py-3">
+            <p className="label-kicker">Clothes</p>
+            <p className="mt-2 text-sm font-semibold text-slate-950">{pkg.clothes_count}</p>
+          </div>
+          <div className="surface-subtle px-4 py-3">
+            <p className="label-kicker">Weight</p>
+            <p className="mt-2 text-sm font-semibold text-slate-950">
+              {pkg.total_weight_kg.toFixed(2)} kg
+            </p>
+          </div>
+          <div className="surface-subtle px-4 py-3">
+            <p className="label-kicker">Price</p>
+            <p className="mt-2 text-sm font-semibold text-slate-950">
+              {pkg.total_price_ghs.toFixed(2)}
+            </p>
+          </div>
+          <div className="surface-subtle px-4 py-3">
+            <p className="label-kicker">SMS</p>
+            <div className="mt-2">{renderSmsInfo(pkg)}</div>
+          </div>
+        </div>
+      </article>
+    );
+  }
+
+  function renderPackageTable(packages: PackageRecord[]) {
+    return (
+      <div className="table-wrap hidden md:block">
+        <table className="data-table compact-table min-w-[1080px]">
+          <thead>
+            <tr className="text-left">
+              <th className="font-semibold">Order</th>
+              <th className="font-semibold">Customer</th>
+              <th className="font-semibold">Package</th>
+              <th className="font-semibold">Phone</th>
+              <th className="font-semibold">Clothes</th>
+              <th className="font-semibold">Room</th>
+              <th className="font-semibold">Weight</th>
+              <th className="font-semibold">Price</th>
+              <th className="w-[7.5rem] min-w-[7.5rem] font-semibold">Payment</th>
+              <th className="w-[11rem] min-w-[11rem] font-semibold">Status</th>
+              <th className="w-[11rem] min-w-[11rem] font-semibold">SMS</th>
+            </tr>
+          </thead>
+          <tbody>
+            {packages.map((pkg) => (
+              <tr key={pkg.id} className="text-slate-700 transition">
+                <td className="font-semibold text-slate-900">{pkg.order_id}</td>
+                <td>{pkg.customer_name}</td>
+                <td className="whitespace-nowrap">
+                  {getCompactPackageTypeLabel(pkg.package_type)}
+                </td>
+                <td>{pkg.primary_phone}</td>
+                <td>{pkg.clothes_count}</td>
+                <td>{pkg.room_number}</td>
+                <td>{pkg.total_weight_kg.toFixed(2)} kg</td>
+                <td className="whitespace-nowrap">{pkg.total_price_ghs.toFixed(2)}</td>
+                <td className="w-[7.5rem] min-w-[7.5rem]">{renderPaymentControls(pkg)}</td>
+                <td className="w-[11rem] min-w-[11rem]">{renderStatusControl(pkg)}</td>
+                <td className="w-[11rem] min-w-[11rem]">{renderSmsInfo(pkg)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     );
   }
@@ -1158,169 +1375,169 @@ export function PackagesPageClient({
         </article>
       </section>
 
-      <section className="glass-card overflow-hidden">
-        <div className="border-b border-slate-200/70 px-5 py-4">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            <p className="label-kicker">Package Tracking</p>
-            <div className="grid gap-2 lg:min-w-0 lg:flex-1 lg:grid-cols-[minmax(0,1.7fr)_minmax(10.5rem,0.7fr)_minmax(10.5rem,0.7fr)_auto]">
-              <input
-                type="text"
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder="Search order, customer, room, phone"
-                className="input-control lg:min-w-0"
-              />
-              <select
-                value={statusFilter}
-                onChange={(event) =>
-                  setStatusFilter(event.target.value as PackageStatus | "ALL")
-                }
-                className="input-control min-w-[160px]"
-              >
-                <option value="ALL">All statuses</option>
-                {(Object.keys(STATUS_ORDER) as PackageStatus[]).map((status) => (
-                  <option key={status} value={status}>
-                    {getCompactStatusLabel(status)}
-                  </option>
-                ))}
-              </select>
-              <select
-                value={paymentFilter}
-                onChange={(event) =>
-                  setPaymentFilter(event.target.value as PaymentStatusFilter)
-                }
-                className="input-control min-w-[160px]"
-              >
-                <option value="ALL">All payments</option>
-                {PAYMENT_STATUS_OPTIONS.filter((status) => status !== "ALL").map((status) => (
-                  <option key={status} value={status}>
-                    {getCompactPaymentLabel(status)}
-                  </option>
-                ))}
-              </select>
-              <button
-                type="button"
-                onClick={() => setSortDescending((prev) => !prev)}
-                className="btn btn-secondary w-full justify-self-stretch lg:w-auto lg:justify-self-end"
-              >
-                Sort {sortDescending ? "↓" : "↑"}
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <div className="space-y-4 p-4 md:hidden">
-          {visiblePackages.map((pkg) => (
-            <article key={pkg.id} className="metric-tile p-4">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                <div className="min-w-0">
-                  <p className="font-display text-xl font-semibold text-slate-950">
-                    {pkg.order_id}
-                  </p>
-                  <p className="mt-1 break-words text-sm leading-5 text-slate-600">
-                    {pkg.customer_name} • Room {pkg.room_number}
-                  </p>
-                </div>
-                <div className="grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-2 sm:flex sm:w-auto sm:flex-wrap sm:justify-end">
-                  {renderPaymentControls(pkg, true)}
-                  {renderStatusControl(pkg, true)}
-                </div>
-              </div>
-
-              <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                <div className="surface-subtle px-4 py-3">
-                  <p className="label-kicker">Package</p>
-                  <p className="mt-2 text-sm font-semibold text-slate-950">
-                    {getCompactPackageTypeLabel(pkg.package_type)}
-                  </p>
-                </div>
-                <div className="surface-subtle px-4 py-3">
-                  <p className="label-kicker">Phone</p>
-                  <p className="mt-2 text-sm font-semibold text-slate-950">
-                    {pkg.primary_phone}
-                  </p>
-                </div>
-                <div className="surface-subtle px-4 py-3">
-                  <p className="label-kicker">Clothes</p>
-                  <p className="mt-2 text-sm font-semibold text-slate-950">
-                    {pkg.clothes_count}
-                  </p>
-                </div>
-                <div className="surface-subtle px-4 py-3">
-                  <p className="label-kicker">Weight</p>
-                  <p className="mt-2 text-sm font-semibold text-slate-950">
-                    {pkg.total_weight_kg.toFixed(2)} kg
-                  </p>
-                </div>
-                <div className="surface-subtle px-4 py-3">
-                  <p className="label-kicker">Price</p>
-                  <p className="mt-2 text-sm font-semibold text-slate-950">
-                    {pkg.total_price_ghs.toFixed(2)}
-                  </p>
-                </div>
-                <div className="surface-subtle px-4 py-3">
-                  <p className="label-kicker">SMS</p>
-                  <div className="mt-2">{renderSmsInfo(pkg)}</div>
-                </div>
-              </div>
-            </article>
-          ))}
-          {visiblePackages.length === 0 ? (
-            <p className="metric-tile p-5 text-center text-sm leading-6 text-slate-500">
+      <section className="space-y-4">
+        {visibleWeekSections.length === 0 ? (
+          <article className="glass-card overflow-hidden">
+            <p className="p-5 text-center text-sm leading-6 text-slate-500">
               No packages match the current live filters.
             </p>
-          ) : null}
-        </div>
+          </article>
+        ) : (
+          visibleWeekSections.map((section) => {
+            const title = section.week?.label ?? `Week ${section.weekId.slice(0, 8)}`;
+            const rangeLabel = section.week
+              ? getWeekRangeLabel(section.week)
+              : "Week details unavailable for this package batch.";
+            const sectionSearch = weekSearchTerms[section.weekId] ?? "";
+            const trimmedSectionSearch = sectionSearch.trim();
+            const sectionSortIsDescending = weekSortDescending[section.weekId] ?? false;
+            const sectionStatusFilter = weekStatusFilters[section.weekId] ?? "ALL";
+            const sectionPaymentFilter = weekPaymentFilters[section.weekId] ?? "ALL";
+            const sectionIsCollapsed = collapsedWeeks[section.weekId] ?? section.status !== "ACTIVE";
+            const sectionVisiblePackages = sortPackagesForDisplay(
+              section.packages.filter((pkg) => {
+                const matchesStatus =
+                  sectionStatusFilter === "ALL" || pkg.status === sectionStatusFilter;
+                const matchesPayment =
+                  sectionPaymentFilter === "ALL" || pkg.payment_status === sectionPaymentFilter;
 
-        <div className="table-wrap hidden md:block">
-          <table className="data-table compact-table min-w-[1080px]">
-            <thead>
-              <tr className="text-left">
-                <th className="font-semibold">Order</th>
-                <th className="font-semibold">Customer</th>
-                <th className="font-semibold">Package</th>
-                <th className="font-semibold">Phone</th>
-                <th className="font-semibold">Clothes</th>
-                <th className="font-semibold">Room</th>
-                <th className="font-semibold">Weight</th>
-                <th className="font-semibold">Price</th>
-                <th className="w-[7.5rem] min-w-[7.5rem] font-semibold">Payment</th>
-                <th className="w-[11rem] min-w-[11rem] font-semibold">Status</th>
-                <th className="w-[11rem] min-w-[11rem] font-semibold">SMS</th>
-              </tr>
-            </thead>
-            <tbody>
-              {visiblePackages.map((pkg) => (
-                <tr key={pkg.id} className="text-slate-700 transition">
-                  <td className="font-semibold text-slate-900">{pkg.order_id}</td>
-                  <td>{pkg.customer_name}</td>
-                  <td className="whitespace-nowrap">{getCompactPackageTypeLabel(pkg.package_type)}</td>
-                  <td>{pkg.primary_phone}</td>
-                  <td>{pkg.clothes_count}</td>
-                  <td>{pkg.room_number}</td>
-                  <td>{pkg.total_weight_kg.toFixed(2)} kg</td>
-                  <td className="whitespace-nowrap">{pkg.total_price_ghs.toFixed(2)}</td>
-                  <td className="w-[7.5rem] min-w-[7.5rem]">
-                    {renderPaymentControls(pkg)}
-                  </td>
-                  <td className="w-[11rem] min-w-[11rem]">
-                    {renderStatusControl(pkg)}
-                  </td>
-                  <td className="w-[11rem] min-w-[11rem]">
-                    {renderSmsInfo(pkg)}
-                  </td>
-                </tr>
-              ))}
-              {visiblePackages.length === 0 ? (
-                <tr>
-                  <td colSpan={11} className="py-10 text-center text-slate-500">
-                    No packages match the current live filters.
-                  </td>
-                </tr>
-              ) : null}
-            </tbody>
-          </table>
-        </div>
+                return (
+                  matchesStatus &&
+                  matchesPayment &&
+                  matchesSearch(pkg, trimmedSectionSearch)
+                );
+              }),
+              sectionSortIsDescending,
+            );
+            const emptyMessage =
+              Boolean(trimmedSectionSearch) ||
+              sectionStatusFilter !== "ALL" ||
+              sectionPaymentFilter !== "ALL"
+                ? "No packages in this week match the current filters."
+                : section.status === "ACTIVE"
+                  ? "No packages have been created for this week yet."
+                  : "No packages were found for this week.";
+
+            return (
+              <article key={section.weekId} className="glass-card overflow-hidden">
+                <div className="border-b border-slate-200/70 px-5 py-4">
+                  <div className="flex flex-col gap-4">
+                    <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                      <div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="font-display text-2xl font-semibold text-slate-950">
+                            {title}
+                          </p>
+                          <span className={`status-chip ${weekStatusPill(section.status)}`}>
+                            {section.status}
+                          </span>
+                        </div>
+                        <p className="mt-2 text-sm leading-6 text-slate-500">{rangeLabel}</p>
+                      </div>
+                      <div className="flex flex-wrap items-center justify-between gap-3 lg:justify-end">
+                        <div className="flex flex-wrap gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+                          <span>{section.packageCount} packages</span>
+                          <span>{section.totalWeight.toFixed(2)} kg</span>
+                          <span>GHS {section.totalRevenue.toFixed(2)}</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setCollapsedWeeks((prev) => ({
+                              ...prev,
+                              [section.weekId]: !sectionIsCollapsed,
+                            }))
+                          }
+                          className="btn btn-secondary"
+                          aria-expanded={!sectionIsCollapsed}
+                          aria-controls={`week-panel-${section.weekId}`}
+                        >
+                          {sectionIsCollapsed ? "Expand" : "Collapse"}
+                        </button>
+                      </div>
+                    </div>
+
+                    <div>
+                      <div className="grid gap-2 lg:grid-cols-[minmax(0,1.5fr)_minmax(10rem,0.8fr)_minmax(10rem,0.8fr)_auto]">
+                        <input
+                          type="text"
+                          value={sectionSearch}
+                          onChange={(event) =>
+                            setWeekSearchTerms((prev) => ({
+                              ...prev,
+                              [section.weekId]: event.target.value,
+                            }))
+                          }
+                          placeholder="Search this week"
+                          className="input-control"
+                        />
+                        <select
+                          value={sectionStatusFilter}
+                          onChange={(event) =>
+                            setWeekStatusFilters((prev) => ({
+                              ...prev,
+                              [section.weekId]: event.target.value as PackageStatus | "ALL",
+                            }))
+                          }
+                          className="input-control min-w-[160px]"
+                        >
+                          <option value="ALL">All statuses</option>
+                          {(Object.keys(STATUS_ORDER) as PackageStatus[]).map((status) => (
+                            <option key={status} value={status}>
+                              {getCompactStatusLabel(status)}
+                            </option>
+                          ))}
+                        </select>
+                        <select
+                          value={sectionPaymentFilter}
+                          onChange={(event) =>
+                            setWeekPaymentFilters((prev) => ({
+                              ...prev,
+                              [section.weekId]: event.target.value as PaymentStatusFilter,
+                            }))
+                          }
+                          className="input-control min-w-[160px]"
+                        >
+                          <option value="ALL">All payments</option>
+                          {PAYMENT_STATUS_OPTIONS.filter((status) => status !== "ALL").map(
+                            (status) => (
+                              <option key={status} value={status}>
+                                {getCompactPaymentLabel(status)}
+                              </option>
+                            ),
+                          )}
+                        </select>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setWeekSortDescending((prev) => ({
+                              ...prev,
+                              [section.weekId]: !sectionSortIsDescending,
+                            }))
+                          }
+                          className="btn btn-secondary w-full lg:w-auto"
+                        >
+                          Sort {sectionSortIsDescending ? "↓" : "↑"}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {sectionIsCollapsed ? null : sectionVisiblePackages.length === 0 ? (
+                  <p className="p-5 text-sm leading-6 text-slate-500">{emptyMessage}</p>
+                ) : (
+                  <div id={`week-panel-${section.weekId}`}>
+                    <div className="space-y-4 p-4 md:hidden">
+                      {sectionVisiblePackages.map((pkg) => renderPackageCard(pkg))}
+                    </div>
+                    {renderPackageTable(sectionVisiblePackages)}
+                  </div>
+                )}
+              </article>
+            );
+          })
+        )}
       </section>
 
       {statusDialog ? (

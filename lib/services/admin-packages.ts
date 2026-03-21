@@ -1,12 +1,20 @@
-import type { PackageRecord, ProcessingWeek } from "@/lib/types";
+import type {
+  PackageRecord,
+  ProcessingWeek,
+  ProcessingWeekWithReport,
+} from "@/lib/types";
 
-import { getCurrentProcessingWeek } from "@/lib/services/weeks";
+import {
+  getCurrentProcessingWeek,
+  listProcessingWeeks,
+} from "@/lib/services/weeks";
 
 import { listPackages } from "./packages";
 
 interface AdminPackagesCacheEntry {
   cachedAt: string;
   week: ProcessingWeek | null;
+  weeks: ProcessingWeekWithReport[];
   packages: PackageRecord[];
 }
 
@@ -79,6 +87,7 @@ export function invalidateAdminPackagesCache() {
 
 export async function getAdminPackagesBootstrap(): Promise<{
   week: ProcessingWeek | null;
+  weeks: ProcessingWeekWithReport[];
   packages: PackageRecord[];
   stale: boolean;
   cachedAt: string | null;
@@ -89,27 +98,33 @@ export async function getAdminPackagesBootstrap(): Promise<{
   if (cached && now - new Date(cached.cachedAt).getTime() <= BOOTSTRAP_CACHE_TTL_MS) {
     return {
       week: cached.week,
+      weeks: cached.weeks,
       packages: cached.packages,
       stale: false,
       cachedAt: cached.cachedAt,
     };
   }
 
-  const [weekResult, packagesResult] = await Promise.all([
+  const [weekResult, weeksResult, packagesResult] = await Promise.all([
     withSoftTimeout(getCurrentProcessingWeek(), BOOTSTRAP_SOURCE_TIMEOUT_MS),
+    withSoftTimeout(listProcessingWeeks(), BOOTSTRAP_SOURCE_TIMEOUT_MS),
     withSoftTimeout(listPackages(), BOOTSTRAP_SOURCE_TIMEOUT_MS),
   ]);
 
-  const hasFallback = !weekResult.ok || !packagesResult.ok;
+  const hasFallback = !weekResult.ok || !weeksResult.ok || !packagesResult.ok;
   const week = weekResult.ok ? weekResult.value : cached?.week ?? null;
+  const weeks = weeksResult.ok ? weeksResult.value : cached?.weeks ?? [];
   const packages = packagesResult.ok ? packagesResult.value : cached?.packages ?? [];
-  const hasAnyData = weekResult.ok || packagesResult.ok || Boolean(cached);
+  const hasAnyData =
+    weekResult.ok || weeksResult.ok || packagesResult.ok || Boolean(cached);
 
   if (!hasAnyData) {
     const errorSource =
-      weekResult.ok || !("error" in weekResult) || !weekResult.error
+      !packagesResult.ok && "error" in packagesResult && packagesResult.error
         ? packagesResult
-        : weekResult;
+        : !weeksResult.ok && "error" in weeksResult && weeksResult.error
+          ? weeksResult
+          : weekResult;
 
     if ("error" in errorSource && errorSource.error) {
       throw errorSource.error;
@@ -121,6 +136,7 @@ export async function getAdminPackagesBootstrap(): Promise<{
   const nextEntry: AdminPackagesCacheEntry = {
     cachedAt: new Date().toISOString(),
     week,
+    weeks,
     packages,
   };
 
@@ -130,10 +146,15 @@ export async function getAdminPackagesBootstrap(): Promise<{
     console.warn("[packages-bootstrap] serving partial or cached bootstrap data", {
       cachedAt: cached?.cachedAt ?? null,
       weekSource: weekResult.ok ? "live" : weekResult.reason,
+      weeksSource: weeksResult.ok ? "live" : weeksResult.reason,
       packagesSource: packagesResult.ok ? "live" : packagesResult.reason,
       weekError:
         !weekResult.ok && weekResult.reason === "error"
           ? serializeError(weekResult.error)
+          : null,
+      weeksError:
+        !weeksResult.ok && weeksResult.reason === "error"
+          ? serializeError(weeksResult.error)
           : null,
       packagesError:
         !packagesResult.ok && packagesResult.reason === "error"
@@ -144,6 +165,7 @@ export async function getAdminPackagesBootstrap(): Promise<{
 
   return {
     week,
+    weeks,
     packages,
     stale: hasFallback,
     cachedAt: hasFallback ? cached?.cachedAt ?? nextEntry.cachedAt : nextEntry.cachedAt,

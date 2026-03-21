@@ -20,6 +20,7 @@ import type {
   WorkerPayoutSummary,
 } from "@/lib/types";
 import { AppError } from "@/lib/app-error";
+import { invalidatePackagesListCache } from "./packages";
 
 export const SYSTEM_ACTOR_ID = "00000000-0000-0000-0000-000000000001";
 
@@ -470,6 +471,7 @@ export async function closeProcessingWeek(
 
     invalidateCurrentProcessingWeekCache();
     invalidateProcessingWeeksListCache();
+    invalidatePackagesListCache();
 
     return {
       closedWeek: mapWeek(closedRows[0] as Record<string, unknown>),
